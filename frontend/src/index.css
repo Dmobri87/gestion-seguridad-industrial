@@ -1,0 +1,154 @@
+/* Reset y estilos base */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Layout principal */
+.app-layout {
+  min-height: 100vh;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  background: #001529;
+}
+
+.app-logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: white;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.app-content {
+  margin: 24px;
+  padding: 24px;
+  background: #fff;
+  border-radius: 8px;
+  min-height: calc(100vh - 64px - 48px);
+}
+
+/* Cards de KPI */
+.kpi-card {
+  text-align: center;
+  border-radius: 8px;
+}
+
+.kpi-card .ant-statistic-title {
+  font-size: 14px;
+  color: rgba(0, 0, 0, 0.65);
+}
+
+.kpi-card .ant-statistic-content {
+  font-size: 28px;
+}
+
+/* Dashboard */
+.dashboard-section {
+  margin-bottom: 24px;
+}
+
+.section-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: rgba(0, 0, 0, 0.85);
+}
+
+/* Tablas de planificación */
+.planning-table .ant-table-thead > tr > th {
+  background: #fafafa;
+  font-weight: 600;
+}
+
+.cycle-input {
+  width: 60px;
+  text-align: center;
+}
+
+/* Colores de cumplimiento */
+.compliance-high {
+  color: #52c41a;
+}
+
+.compliance-medium {
+  color: #faad14;
+}
+
+.compliance-low {
+  color: #ff4d4f;
+}
+
+/* Alertas */
+.alert-critical {
+  border-left: 4px solid #ff4d4f;
+}
+
+.alert-urgent {
+  border-left: 4px solid #fa8c16;
+}
+
+.alert-warning {
+  border-left: 4px solid #faad14;
+}
+
+/* Login page */
+.login-container {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #1890ff 0%, #096dd9 100%);
+}
+
+.login-card {
+  width: 400px;
+  padding: 40px;
+  border-radius: 8px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
+}
+
+.login-title {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.login-title h1 {
+  font-size: 24px;
+  margin-bottom: 8px;
+  color: #001529;
+}
+
+.login-title p {
+  color: rgba(0, 0, 0, 0.45);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .app-content {
+    margin: 16px;
+    padding: 16px;
+  }
+
+  .login-card {
+    width: 100%;
+    margin: 16px;
+  }
+}

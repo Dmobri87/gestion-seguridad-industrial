@@ -1,0 +1,85 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Variables de entorno
+.env
+.env.local
+.env.*.local
+
+# Base de datos
+*.db
+*.sqlite
+*.sqlite3
+sql_app.db
+postgres_data/
+*.db-shm
+*.db-wal
+*.db-journal
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Docker
+docker-compose.override.yml
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Tests
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Node (para cuando hagamos React)
+node_modules/
+npm-debug.log
+yarn-error.log
+# Vite
+.vite/
+
+# Virtual environments
+.venv/
+
+# Temp files and artifacts
+nul
+openapi_temp.json
+UsersdeiviDocumentsgestion_proyectosopenapi_temp.json
+
+# Claude settings (local)
+.claude/settings.local.json
+
+# SQLite journal files
+*.db-shm
+*.db-wal
+*.db-journal
