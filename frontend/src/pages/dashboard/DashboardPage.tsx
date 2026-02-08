@@ -242,7 +242,7 @@ const DashboardPage = () => {
       {/* ═══ Header ═══ */}
       <div style={{ marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
         <div>
-          <Title level={3} style={{ margin: 0, fontWeight: 700 }}>Panel de Seguridad Industrial</Title>
+          <Title level={3} style={{ margin: 0, fontWeight: 700 }}>Panel de Gestión GAE</Title>
           <Text type="secondary">{data.period}</Text>
         </div>
         <Space>

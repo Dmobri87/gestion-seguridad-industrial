@@ -133,7 +133,7 @@ const MainLayout = () => {
             padding: '0 16px',
           }}
         >
-          {collapsed ? 'SGS' : 'Seguridad Industrial'}
+          {collapsed ? 'GAE' : 'Gestión GAE'}
         </div>
 
         <Menu

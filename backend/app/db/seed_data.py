@@ -339,3 +339,72 @@ USER_ROLES = [
     {"code": "EMPLOYEE", "name": "Empleado", "description": "Consulta y reportes personales"},
     {"code": "GUEST", "name": "Invitado", "description": "Solo lectura"},
 ]
+
+
+# ============================================
+# FUNCION SEED DATABASE
+# ============================================
+
+def seed_database():
+    """Poblar la base de datos con datos iniciales."""
+    from app.core.database import SessionLocal, engine
+    from app.models.user import User, Base
+    from app.models.activity_category import ActivityCategory
+    from app.models.activity_template import ActivityTemplate
+    from app.models.emergency import EmergencyType
+    from app.core.security import get_password_hash
+
+    Base.metadata.create_all(bind=engine)
+    db = SessionLocal()
+
+    try:
+        existing_cats = db.query(ActivityCategory).count()
+        if existing_cats == 0:
+            for cat_data in ACTIVITY_CATEGORIES:
+                cat = ActivityCategory(**cat_data, is_active=True)
+                db.add(cat)
+            db.commit()
+            print(f"Creadas {len(ACTIVITY_CATEGORIES)} categorias")
+
+        existing_types = db.query(EmergencyType).count()
+        if existing_types == 0:
+            for et_data in EMERGENCY_TYPES:
+                et = EmergencyType(**et_data, is_active=True)
+                db.add(et)
+            db.commit()
+            print(f"Creados {len(EMERGENCY_TYPES)} tipos de emergencias")
+
+        existing_templates = db.query(ActivityTemplate).count()
+        if existing_templates == 0:
+            categories = {c.code: c.id for c in db.query(ActivityCategory).all()}
+            for tmpl_data in ACTIVITY_TEMPLATES:
+                cat_code = tmpl_data.pop("category_code")
+                if cat_code in categories:
+                    tmpl = ActivityTemplate(**tmpl_data, category_id=categories[cat_code], is_active=True)
+                    db.add(tmpl)
+            db.commit()
+            print(f"Creadas {len(ACTIVITY_TEMPLATES)} plantillas")
+
+        admin = db.query(User).filter(User.role == "Administrador").first()
+        if not admin:
+            admin = User(
+                email="admin@cerrejon.com",
+                hashed_password=get_password_hash("Admin2026"),
+                full_name="Administrador Sistema",
+                role="Administrador",
+                is_active=True
+            )
+            db.add(admin)
+            db.commit()
+            print("Usuario admin creado: admin@cerrejon.com / Admin2026")
+
+        print("Seed completado exitosamente")
+    except Exception as e:
+        db.rollback()
+        print(f"Error en seed: {e}")
+    finally:
+        db.close()
+
+
+if __name__ == "__main__":
+    seed_database()

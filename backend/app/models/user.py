@@ -62,7 +62,7 @@ class User(Base):
     two_factor_secret = Column(String(255), nullable=True)
 
     # OTP para autenticación de dos factores por email
-    otp_code = Column(String(6), nullable=True)
+    otp_code = Column(String(64), nullable=True)  # Hash SHA256 del OTP
     otp_expires_at = Column(DateTime(timezone=True), nullable=True)
     otp_attempts = Column(Integer, default=0)
 

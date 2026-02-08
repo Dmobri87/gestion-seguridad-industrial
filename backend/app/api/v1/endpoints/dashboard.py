@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query
+﻿from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import extract, func
 from typing import Optional
@@ -31,6 +31,13 @@ MONTH_NAMES = [
 ]
 
 
+def _org_filter(query, model_class, org_id):
+    """Aplica filtro de organizacion solo si org_id no es None."""
+    if org_id is not None:
+        return query.filter(model_class.organization_id == org_id)
+    return query
+
+
 @router.get("/", response_model=DashboardData)
 async def get_dashboard(
     year: int = Query(..., ge=2020, le=2100),
@@ -49,24 +56,23 @@ async def get_dashboard(
 
     # Accidentes del mes
     accidents_count = db.query(Accident).filter(
-        Accident.organization_id == org_id,
         extract('year', Accident.accident_date) == year,
         extract('month', Accident.accident_date) == month
     ).count()
 
     # Emergencias del mes
-    emergencies_count = db.query(Emergency).filter(
-        Emergency.organization_id == org_id,
+    emergencies_base = db.query(Emergency).filter(
         extract('year', Emergency.reported_at) == year,
         extract('month', Emergency.reported_at) == month
-    ).count()
+    )
+    emergencies_count = _org_filter(emergencies_base, Emergency, org_id).count()
 
     # Cumplimiento general
-    plans = db.query(MonthlyPlan).filter(
-        MonthlyPlan.organization_id == org_id,
+    plans_base = db.query(MonthlyPlan).filter(
         MonthlyPlan.year == year,
         MonthlyPlan.month == month
-    ).all()
+    )
+    plans = _org_filter(plans_base, MonthlyPlan, org_id).all()
 
     total_planned = sum(p.total_planned for p in plans)
     total_executed = sum(p.total_executed for p in plans)
@@ -140,11 +146,11 @@ async def get_dashboard(
             m += 12
             y -= 1
 
-        month_plans = db.query(MonthlyPlan).filter(
-            MonthlyPlan.organization_id == org_id,
+        month_plans_q = db.query(MonthlyPlan).filter(
             MonthlyPlan.year == y,
             MonthlyPlan.month == m
-        ).all()
+        )
+        month_plans = _org_filter(month_plans_q, MonthlyPlan, org_id).all()
 
         mp = sum(p.total_planned for p in month_plans)
         me = sum(p.total_executed for p in month_plans)
@@ -167,11 +173,11 @@ async def get_dashboard(
     # EMERGENCIAS
     # ==========================================
 
-    emergencies = db.query(Emergency).filter(
-        Emergency.organization_id == org_id,
+    emergencies_detail_q = db.query(Emergency).filter(
         extract('year', Emergency.reported_at) == year,
         extract('month', Emergency.reported_at) == month
-    ).all()
+    )
+    emergencies = _org_filter(emergencies_detail_q, Emergency, org_id).all()
 
     by_type_dict = {}
     total_response = 0
@@ -201,11 +207,13 @@ async def get_dashboard(
     alerts_list = []
 
     # Certificaciones por vencer
-    expiring_certs = db.query(UserCertification).join(User).filter(
-        User.organization_id == org_id,
+    expiring_certs_q = db.query(UserCertification).join(User).filter(
         UserCertification.expiry_date <= date.today() + __import__('datetime').timedelta(days=30),
         UserCertification.expiry_date >= date.today()
-    ).limit(10).all()
+    )
+    if org_id is not None:
+        expiring_certs_q = expiring_certs_q.filter(User.organization_id == org_id)
+    expiring_certs = expiring_certs_q.limit(10).all()
 
     for cert in expiring_certs:
         days = (cert.expiry_date - today).days
@@ -261,10 +269,10 @@ async def get_dashboard(
     # EQUIPOS
     # ==========================================
 
-    equipment_list = db.query(Equipment).filter(
-        Equipment.organization_id == org_id,
-        Equipment.is_active == True
-    ).all()
+    equipment_query = db.query(Equipment).filter(Equipment.is_active == True)
+    if org_id is not None:
+        equipment_query = equipment_query.filter(Equipment.organization_id == org_id)
+    equipment_list = equipment_query.all()
 
     equipment_summary = EquipmentStatusSummary(
         total=len(equipment_list),
@@ -278,9 +286,10 @@ async def get_dashboard(
     # CERTIFICACIONES
     # ==========================================
 
-    all_certs = db.query(UserCertification).join(User).filter(
-        User.organization_id == org_id
-    ).all()
+    all_certs_q = db.query(UserCertification).join(User)
+    if org_id is not None:
+        all_certs_q = all_certs_q.filter(User.organization_id == org_id)
+    all_certs = all_certs_q.all()
 
     cert_summary = CertificationStatusSummary(
         total_personal=len(all_certs),
@@ -324,11 +333,11 @@ async def get_compliance_chart_data(
     data = []
 
     for month in range(1, 13):
-        plans = db.query(MonthlyPlan).filter(
-            MonthlyPlan.organization_id == org_id,
+        plans_q = db.query(MonthlyPlan).filter(
             MonthlyPlan.year == year,
             MonthlyPlan.month == month
-        ).all()
+        )
+        plans = _org_filter(plans_q, MonthlyPlan, org_id).all()
 
         total_planned = sum(p.total_planned for p in plans)
         total_executed = sum(p.total_executed for p in plans)

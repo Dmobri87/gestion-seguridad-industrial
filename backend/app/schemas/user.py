@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, ConfigDict, field_validator
+﻿from pydantic import BaseModel, EmailStr, ConfigDict, field_validator
 from datetime import datetime
 from typing import Optional, List
 from enum import Enum
@@ -194,15 +194,15 @@ class PasswordReset(BaseModel):
 # ==========================================
 
 class OTPVerifyRequest(BaseModel):
-    """Schema para verificación de código OTP."""
+    """Schema para verificacion de codigo OTP."""
     email: EmailStr
     otp_code: str
 
     @field_validator('otp_code')
     @classmethod
     def validate_otp_code(cls, v):
-        if not v or len(v) != 6 or not v.isdigit():
-            raise ValueError('El código OTP debe ser de 6 dígitos')
+        if not v or len(v) != 8 or not v.isdigit():
+            raise ValueError('El codigo OTP debe ser de 8 digitos')
         return v
 
 
