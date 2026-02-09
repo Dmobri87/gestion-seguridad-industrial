@@ -294,9 +294,9 @@ export const planningApi = {
 // ==========================================
 
 export const executionsApi = {
-  getAll: async (year: number, month: number, userId?: number, limit?: number) => {
+  getAll: async (year: number, month: number, userId?: number) => {
     const response = await api.get('/executions/', {
-      params: { year, month, user_id: userId, limit: limit || 100 },
+      params: { year, month, user_id: userId },
     });
     return response.data;
   },

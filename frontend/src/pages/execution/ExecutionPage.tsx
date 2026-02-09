@@ -107,7 +107,7 @@ const ExecutionPage = () => {
     try {
       const userIdFilter = isApprover ? selectedTaeId : undefined;
       const [execsResponse, pendingResponse, statsResponse] = await Promise.all([
-        executionsApi.getAll(year, month, userIdFilter, 200),
+        executionsApi.getAll(year, month, userIdFilter),
         executionsApi.getMyToday(),
         executionsApi.getStats(year, month),
       ]);
