@@ -107,7 +107,7 @@ const ExecutionPage = () => {
     try {
       const userIdFilter = isApprover ? selectedTaeId : undefined;
       const [execsResponse, pendingResponse, statsResponse] = await Promise.all([
-        executionsApi.getAll(year, month, userIdFilter),
+        executionsApi.getAll(year, month, userIdFilter, 200),
         executionsApi.getMyToday(),
         executionsApi.getStats(year, month),
       ]);
@@ -414,7 +414,7 @@ const ExecutionPage = () => {
               </Tooltip>
             </>
           )}
-          {record.approval_status === 'Rechazado' && record.user_id === user?.id && (
+          {record.approval_status === 'Rechazado' && Number(record.user_id) === Number(user?.id) && (
             <Tooltip title="Corregir y Reenviar">
               <Button
                 type="primary"
