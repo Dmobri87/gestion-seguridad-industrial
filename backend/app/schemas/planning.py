@@ -139,7 +139,7 @@ class MonthlyPlanResponse(MonthlyPlanBase):
     created_by: int
     approved_by: Optional[int] = None
     approved_at: Optional[datetime] = None
-    organization_id: int
+    organization_id: Optional[int] = None
     total_planned: int
     total_executed: int
     compliance_percentage: float
