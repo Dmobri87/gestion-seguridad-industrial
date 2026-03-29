@@ -52,6 +52,14 @@ SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")
 SMTP_FROM: str = os.getenv("SMTP_FROM", "noreply@seguridad-industrial.com")
 
 # ──────────────────────────────────────────────────────────────────
+# Twilio — SMS y WhatsApp OTP
+# ──────────────────────────────────────────────────────────────────
+TWILIO_ACCOUNT_SID: str = os.getenv("TWILIO_ACCOUNT_SID", "")
+TWILIO_AUTH_TOKEN: str = os.getenv("TWILIO_AUTH_TOKEN", "")
+TWILIO_PHONE_NUMBER: str = os.getenv("TWILIO_PHONE_NUMBER", "")       # Ej: +12025551234
+TWILIO_WHATSAPP_FROM: str = os.getenv("TWILIO_WHATSAPP_FROM", "")     # Ej: +14155238886
+
+# ──────────────────────────────────────────────────────────────────
 # Rate limiting y OTP
 # ──────────────────────────────────────────────────────────────────
 MAX_LOGIN_ATTEMPTS: int = int(os.getenv("MAX_LOGIN_ATTEMPTS", "5"))
@@ -89,8 +97,15 @@ def validate_settings() -> None:
     elif len(SECRET_KEY) < 32:
         errors.append("SECRET_KEY debe tener al menos 32 caracteres.")
 
-    # En produccion, verificar SMTP
+    # En produccion, verificar Twilio o SMTP
     if not DEBUG:
+        if not TWILIO_ACCOUNT_SID:
+            logger.warning(
+                "Twilio no configurado en modo produccion. "
+                "Los codigos OTP NO se enviaran por SMS ni WhatsApp. "
+                "Configure TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, "
+                "TWILIO_PHONE_NUMBER y TWILIO_WHATSAPP_FROM en el .env"
+            )
         if not SMTP_HOST or not SMTP_USER:
             logger.warning(
                 "SMTP no configurado en modo produccion. "

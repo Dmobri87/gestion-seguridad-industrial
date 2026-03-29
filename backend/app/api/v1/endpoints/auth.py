@@ -23,6 +23,7 @@ from app.core.security import (
 )
 from app.core.dependencies import get_current_user, get_admin_user, oauth2_scheme
 from app.core.email import send_otp_email, is_smtp_configured
+from app.core.notifications import send_otp_notification, is_twilio_configured
 from app.models.user import User
 from app.schemas.user import (
     UserLogin, Token, UserResponse, PasswordChange, PasswordReset,
@@ -99,7 +100,7 @@ async def login(
     db: Session = Depends(get_db)
 ):
     """
-    Paso 1 de autenticacion: Valida email + contrasena y envia codigo OTP.
+    Paso 1 de autenticacion: Valida email + contraseña y envia codigo OTP.
     Retorna requires_2fa=true indicando que se necesita verificacion OTP.
     Rate limited: max N intentos cada 5 minutos.
     """
@@ -114,16 +115,16 @@ async def login(
         logger.warning("Login fallido - email no encontrado: %s desde IP: %s", form_data.username, client_ip)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Email o contrasena incorrectos",
+            detail="Email o contraseña incorrectos",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Verificar contrasena
+    # Verificar contraseña
     if not verify_password(form_data.password, user.hashed_password):
-        logger.warning("Login fallido - contrasena incorrecta para: %s desde IP: %s", form_data.username, client_ip)
+        logger.warning("Login fallido - contraseña incorrecta para: %s desde IP: %s", form_data.username, client_ip)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Email o contrasena incorrectos",
+            detail="Email o contraseña incorrectos",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -138,7 +139,7 @@ async def login(
     # Rehash automatico de SHA-256 legacy a bcrypt
     if needs_rehash(user.hashed_password):
         user.hashed_password = get_password_hash(form_data.password)
-        logger.info("Contrasena migrada a bcrypt para usuario: %s", user.email)
+        logger.info("Contraseña migrada a bcrypt para usuario: %s", user.email)
 
     # Generar OTP, hashearlo y almacenarlo
     otp_code = _generate_otp()
@@ -156,26 +157,46 @@ async def login(
             detail="Error interno del servidor"
         )
 
-    # Enviar OTP por email
-    email_sent = send_otp_email(
-        to_email=user.email,
-        otp_code=otp_code,
-        user_name=user.full_name
-    )
+    # ── Enviar OTP: primero intenta SMS + WhatsApp, luego email como fallback ──
+    sent_channels: list[str] = []
+
+    if user.phone and is_twilio_configured():
+        result = send_otp_notification(user.phone, otp_code, user.full_name)
+        sent_channels = result["channels"]
+
+    # Fallback a email si no hay teléfono o Twilio no está configurado
+    if not sent_channels:
+        email_sent = send_otp_email(
+            to_email=user.email,
+            otp_code=otp_code,
+            user_name=user.full_name,
+        )
+        if email_sent:
+            sent_channels.append("email")
 
     logger.info(
-        "OTP generado para %s desde IP: %s (email enviado: %s)",
-        user.email, client_ip, email_sent
+        "OTP generado para %s desde IP: %s (canales: %s)",
+        user.email, client_ip, sent_channels or "ninguno",
     )
 
-    # Construir respuesta
-    response_data = {
+    # ── Construir respuesta ──
+    if sent_channels:
+        channels_str = " y ".join(sent_channels)
+        message = f"Código de verificación enviado por {channels_str}"
+    else:
+        message = "Código de verificación generado"
+
+    response_data: dict = {
         "requires_2fa": True,
-        "message": "Codigo de verificacion enviado a su email"
+        "message": message,
     }
 
-    # En modo desarrollo (SMTP no configurado), incluir el OTP en la respuesta
-    if not is_smtp_configured():
+    # Mostrar hint del teléfono (últimos 4 dígitos) si aplica
+    if user.phone and sent_channels and "email" not in sent_channels:
+        response_data["phone_hint"] = f"***{user.phone.strip()[-4:]}"
+
+    # En modo desarrollo (sin Twilio ni SMTP), incluir el OTP en la respuesta
+    if not sent_channels:
         response_data["dev_otp"] = otp_code
 
     return response_data
@@ -423,29 +444,29 @@ async def change_password(
     db: Session = Depends(get_db)
 ):
     """
-    Cambiar contrasena del usuario actual.
+    Cambiar contraseña del usuario actual.
     """
-    # Verificar contrasena actual
+    # Verificar contraseña actual
     if not verify_password(password_data.current_password, current_user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Contrasena actual incorrecta"
+            detail="Contraseña actual incorrecta"
         )
 
-    # Actualizar contrasena
+    # Actualizar contraseña
     current_user.hashed_password = get_password_hash(password_data.new_password)
     try:
         db.commit()
     except Exception:
         db.rollback()
-        logger.exception("Error actualizando contrasena para: %s", current_user.email)
+        logger.exception("Error actualizando contraseña para: %s", current_user.email)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno al actualizar la contrasena"
+            detail="Error interno al actualizar la contraseña"
         )
 
-    logger.info("Contrasena cambiada para usuario: %s", current_user.email)
-    return {"message": "Contrasena actualizada correctamente"}
+    logger.info("Contraseña cambiada para usuario: %s", current_user.email)
+    return {"message": "Contraseña actualizada correctamente"}
 
 
 @router.post("/refresh-token", response_model=Token)
@@ -470,5 +491,5 @@ async def refresh_token(
         "access_token": access_token,
         "token_type": "bearer",
         "expires_in": TOKEN_EXPIRE_MINUTES * 60,
-        "user": current_user
+        "user": UserResponse.model_validate(current_user)
     }
