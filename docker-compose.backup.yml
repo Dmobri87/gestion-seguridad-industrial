@@ -1,0 +1,83 @@
+# =============================================================================
+# Docker Compose Override - Database Backup Service
+# Sistema de Gestion de Seguridad Industrial y Salud Ocupacional
+# =============================================================================
+#
+# This is a compose override file that adds an automated backup service.
+#
+# Usage:
+#
+#   Run a one-time manual backup:
+#     docker-compose -f docker-compose.yml -f docker-compose.backup.yml run backup
+#
+#   Run a one-time manual restore:
+#     docker-compose -f docker-compose.yml -f docker-compose.backup.yml run backup \
+#       /scripts/restore-db.sh db_2025-01-15_10-30-00.sql.gz
+#
+#   Start the backup service with automatic daily cron schedule:
+#     docker-compose -f docker-compose.yml -f docker-compose.backup.yml up -d backup
+#
+#   View backup logs:
+#     docker-compose -f docker-compose.yml -f docker-compose.backup.yml logs backup
+#
+#   List available backups:
+#     docker-compose -f docker-compose.yml -f docker-compose.backup.yml run backup ls -lht /backups/
+#
+# =============================================================================
+
+services:
+  backup:
+    image: postgres:15-alpine
+    container_name: seguridad_backup
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      BACKUP_DIR: /backups
+      BACKUP_RETENTION: "30"
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      # Cron schedule: default is daily at 2:00 AM
+      BACKUP_CRON: "${BACKUP_CRON:-0 2 * * *}"
+    volumes:
+      - backup_data:/backups
+      - ./scripts/backup-db.sh:/scripts/backup-db.sh:ro
+      - ./scripts/restore-db.sh:/scripts/restore-db.sh:ro
+    networks:
+      - app-network
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        # Install bash if not available (alpine minimal)
+        apk add --no-cache bash > /dev/null 2>&1 || true
+
+        chmod +x /scripts/backup-db.sh /scripts/restore-db.sh
+
+        # If a specific script was passed as argument, run it and exit
+        if [ "$$#" -gt 0 ] && [ -f "$$1" ]; then
+            exec bash "$$@"
+        fi
+
+        # If no arguments or default command, set up cron schedule
+        echo "=== Database Backup Service ==="
+        echo "Schedule: $${BACKUP_CRON}"
+        echo "Retention: $${BACKUP_RETENTION} backups"
+        echo "Backup dir: $${BACKUP_DIR}"
+        echo ""
+
+        # Run an initial backup on startup
+        echo "Running initial backup..."
+        bash /scripts/backup-db.sh
+
+        # Set up cron job for scheduled backups
+        CRON_LINE="$${BACKUP_CRON} DATABASE_URL=$${DATABASE_URL} BACKUP_DIR=$${BACKUP_DIR} BACKUP_RETENTION=$${BACKUP_RETENTION} bash /scripts/backup-db.sh >> /backups/cron.log 2>&1"
+
+        echo "$${CRON_LINE}" > /var/spool/cron/crontabs/root
+
+        echo "Cron job installed. Starting cron daemon..."
+        exec crond -f -l 2
+
+volumes:
+  backup_data:
+    driver: local
