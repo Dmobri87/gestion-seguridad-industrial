@@ -31,6 +31,7 @@ import {
   FolderOutlined,
 } from '@ant-design/icons';
 import { activityApi } from '../../services/api';
+import { useAuthStore } from '../../stores/authStore';
 
 const { Title, Text } = Typography;
 const { Panel } = Collapse;
@@ -71,6 +72,8 @@ const ActivitiesPage = () => {
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [editingTemplate, setEditingTemplate] = useState<Template | null>(null);
+  const user = useAuthStore((state) => state.user);
+  const isAdmin = user?.role === 'Administrador';
 
   const [categoryForm] = Form.useForm();
   const [templateForm] = Form.useForm();
@@ -242,78 +245,16 @@ const ActivitiesPage = () => {
       key: 'actions',
       width: 120,
       render: (_: any, record: Category) => (
-        <Space size="small">
-          <Tooltip title="Editar">
-            <Button size="small" icon={<EditOutlined />} onClick={() => handleEditCategory(record)} />
-          </Tooltip>
-          <Popconfirm title="¿Desactivar esta categoría?" onConfirm={() => handleDeleteCategory(record.id)}>
-            <Button size="small" danger icon={<DeleteOutlined />} />
-          </Popconfirm>
-        </Space>
-      ),
-    },
-  ];
-
-  const templateColumns = [
-    {
-      title: 'Codigo',
-      dataIndex: 'code',
-      key: 'code',
-      width: 120,
-      render: (code: string) => <Tag>{code}</Tag>,
-    },
-    {
-      title: 'Nombre',
-      dataIndex: 'name',
-      key: 'name',
-    },
-    {
-      title: 'Categoria',
-      dataIndex: 'category_id',
-      key: 'category',
-      width: 180,
-      render: (catId: number) => {
-        const cat = categories.find(c => c.id === catId);
-        return cat ? <Tag color={cat.color}>{cat.name}</Tag> : '-';
-      },
-    },
-    {
-      title: 'Frecuencia',
-      dataIndex: 'default_frequency',
-      key: 'frequency',
-      width: 100,
-      align: 'center' as const,
-      render: (freq: number) => `${freq}/ciclo`,
-    },
-    {
-      title: 'Evidencia',
-      dataIndex: 'requires_evidence',
-      key: 'evidence',
-      width: 100,
-      align: 'center' as const,
-      render: (req: boolean) => req ? <Tag color="blue">Requerida</Tag> : <Tag>Opcional</Tag>,
-    },
-    {
-      title: 'Critica',
-      dataIndex: 'is_critical',
-      key: 'critical',
-      width: 80,
-      align: 'center' as const,
-      render: (critical: boolean) => critical ? <Tag color="red">Si</Tag> : '-',
-    },
-    {
-      title: 'Acciones',
-      key: 'actions',
-      width: 120,
-      render: (_: any, record: Template) => (
-        <Space size="small">
-          <Tooltip title="Editar">
-            <Button size="small" icon={<EditOutlined />} onClick={() => handleEditTemplate(record)} />
-          </Tooltip>
-          <Popconfirm title="¿Desactivar esta actividad?" onConfirm={() => handleDeleteTemplate(record.id)}>
-            <Button size="small" danger icon={<DeleteOutlined />} />
-          </Popconfirm>
-        </Space>
+        isAdmin ? (
+          <Space size="small">
+            <Tooltip title="Editar">
+              <Button size="small" icon={<EditOutlined />} onClick={() => handleEditCategory(record)} />
+            </Tooltip>
+            <Popconfirm title="¿Desactivar esta categoría?" onConfirm={() => handleDeleteCategory(record.id)}>
+              <Button size="small" danger icon={<DeleteOutlined />} />
+            </Popconfirm>
+          </Space>
+        ) : null
       ),
     },
   ];
@@ -328,8 +269,8 @@ const ActivitiesPage = () => {
 
   return (
     <div>
-      <div style={{ marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Title level={4} style={{ margin: 0 }}>
+      <div style={{ marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+        <Title level={4} style={{ margin: 0, whiteSpace: 'nowrap', flexShrink: 0 }}>
           <AppstoreOutlined style={{ marginRight: 8 }} />
           Catalogo de Actividades
         </Title>
@@ -350,9 +291,11 @@ const ActivitiesPage = () => {
             children: (
               <Card
                 extra={
-                  <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateTemplate}>
-                    Nueva Plantilla
-                  </Button>
+                  isAdmin && (
+                    <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateTemplate}>
+                      Nueva Plantilla
+                    </Button>
+                  )
                 }
               >
                 {/* Vista agrupada por categoria */}
@@ -381,32 +324,37 @@ const ActivitiesPage = () => {
                           size="small"
                           dataSource={temps}
                           renderItem={(item) => (
-                            <List.Item
-                              actions={[
-                                item.requires_evidence && <Tag color="blue" key="ev">Evidencia</Tag>,
-                                item.is_critical && <Tag color="red" key="cr">Critica</Tag>,
-                                <Tooltip title="Editar" key="edit">
-                                  <Button
-                                    type="text"
-                                    size="small"
-                                    icon={<EditOutlined />}
-                                    onClick={() => handleEditTemplate(item)}
-                                  />
-                                </Tooltip>,
-                                <Popconfirm key="del" title="¿Desactivar?" onConfirm={() => handleDeleteTemplate(item.id)}>
-                                  <Button type="text" size="small" danger icon={<DeleteOutlined />} />
-                                </Popconfirm>,
-                              ].filter(Boolean)}
-                            >
-                              <List.Item.Meta
-                                title={
-                                  <Space>
-                                    <Tag>{item.code}</Tag>
+                            <List.Item>
+                              <div className="catalog-list-item-row">
+                                <Tag className="catalog-list-item-fixed">{item.code}</Tag>
+                                <div className="catalog-list-item-text">
+                                  <div className="catalog-list-item-title">
                                     {item.name}
-                                  </Space>
-                                }
-                                description={item.description}
-                              />
+                                  </div>
+                                  <Text type="secondary" className="catalog-list-item-description">
+                                    {item.description}
+                                  </Text>
+                                </div>
+                                <div className="catalog-list-item-fixed" style={{ display: 'flex', gap: 4 }}>
+                                  {item.requires_evidence && <Tag color="blue">Evidencia</Tag>}
+                                  {item.is_critical && <Tag color="red">Critica</Tag>}
+                                  {isAdmin && (
+                                    <>
+                                      <Tooltip title="Editar">
+                                        <Button
+                                          type="text"
+                                          size="small"
+                                          icon={<EditOutlined />}
+                                          onClick={() => handleEditTemplate(item)}
+                                        />
+                                      </Tooltip>
+                                      <Popconfirm title="¿Desactivar?" onConfirm={() => handleDeleteTemplate(item.id)}>
+                                        <Button type="text" size="small" danger icon={<DeleteOutlined />} />
+                                      </Popconfirm>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
                             </List.Item>
                           )}
                         />
@@ -428,15 +376,18 @@ const ActivitiesPage = () => {
             children: (
               <Card
                 extra={
-                  <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateCategory}>
-                    Nueva Categoria
-                  </Button>
+                  isAdmin && (
+                    <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateCategory}>
+                      Nueva Categoria
+                    </Button>
+                  )
                 }
               >
                 <Table
                   dataSource={categories}
                   columns={categoryColumns}
                   rowKey="id"
+                  scroll={{ x: 500 }}
                   pagination={false}
                 />
               </Card>

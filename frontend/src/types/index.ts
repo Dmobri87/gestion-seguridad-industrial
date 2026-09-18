@@ -76,6 +76,7 @@ export interface PlannedActivity {
   activity_code?: string;
   category_id?: number;
   category_name?: string;
+  requires_evidence: boolean;
   cycle_1_planned: number;
   cycle_2_planned: number;
   cycle_3_planned: number;
@@ -87,8 +88,8 @@ export interface PlannedActivity {
   total_planned: number;
   total_executed: number;
   compliance_percentage: number;
-  requires_evidence?: boolean;
   is_critical?: boolean;
+  coordinator_only?: boolean;
 }
 
 export interface PlanningCycle {
@@ -110,7 +111,9 @@ export interface ActivityExecution {
   cycle_number: number;
   status: string;
   observation?: string;
+  novelty_description?: string;
   approval_status: string;
+  rejection_reason?: string;
   files_count?: number;
 }
 

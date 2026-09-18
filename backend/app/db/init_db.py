@@ -125,6 +125,7 @@ def init_db(db: Session) -> None:
             activity = ActivityTemplate(
                 code=act_data["code"],
                 name=act_data["name"],
+                description=act_data.get("description"),
                 category_id=category.id,
                 requires_evidence=act_data["requires_evidence"],
                 is_critical=act_data["is_critical"],

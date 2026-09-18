@@ -1,76 +1,92 @@
 """
 Seed data para el Sistema de Gestión de Seguridad Industrial.
-Contiene las 8 categorías y 93+ actividades extraídas del Excel.
+Contiene 10 categorías y 53 actividades del catálogo vigente.
 """
 
 # ============================================
-# CATEGORÍAS DE ACTIVIDADES (8 categorías)
+# CATEGORÍAS DE ACTIVIDADES (10 categorías)
 # ============================================
 
 ACTIVITY_CATEGORIES = [
     {
-        "code": "SIO",
-        "name": "IMPLEMENTACIÓN INTERNA SIO",
-        "description": "Actividades relacionadas con el Sistema Integrado de Operaciones",
+        "code": "PLAN_DE_DESARROLLO",
+        "name": "PLAN DE DESARROLLO",
+        "description": "Categoría importada desde el Excel PLAN DE TRABAJO JAGUARES 2026: PLAN DE DESARROLLO.",
         "display_order": 1,
-        "color": "#1890ff",
-        "icon": "SafetyOutlined"
+        "color": "#faad14",
+        "icon": "StarOutlined"
     },
     {
-        "code": "EMERGENCIAS",
-        "name": "SISTEMA DE EMERGENCIAS",
-        "description": "Registro y seguimiento de emergencias atendidas",
+        "code": "OPERACIONAL",
+        "name": "OPERACIONAL",
+        "description": "Categoría importada desde el Excel PLAN DE TRABAJO JAGUARES 2026: OPERACIONAL.",
         "display_order": 2,
-        "color": "#ff4d4f",
-        "icon": "AlertOutlined"
-    },
-    {
-        "code": "PROGRAMA_TAE",
-        "name": "PROGRAMA DE ACTIVIDADES DEL TAE",
-        "description": "Actividades operativas del Técnico de Atención de Emergencias",
-        "display_order": 3,
         "color": "#52c41a",
         "icon": "ScheduleOutlined"
     },
     {
         "code": "PRIMEROS_AUXILIOS",
-        "name": "ATENCIÓN PRIMEROS AUXILIOS",
-        "description": "Actividades relacionadas con atención médica y primeros auxilios",
-        "display_order": 4,
-        "color": "#fa8c16",
+        "name": "PRIMEROS AUXILIOS",
+        "description": "Categoría importada desde el Excel PLAN DE TRABAJO JAGUARES 2026: PRIMEROS AUXILIOS.",
+        "display_order": 3,
+        "color": "#fa541c",
         "icon": "MedicineBoxOutlined"
+    },
+    {
+        "code": "ALCOHOL_Y_DROGAS",
+        "name": "ALCOHOL Y DROGAS",
+        "description": "Categoría importada desde el Excel PLAN DE TRABAJO JAGUARES 2026: ALCOHOL Y DROGAS.",
+        "display_order": 4,
+        "color": "#722ed1",
+        "icon": "ExperimentOutlined"
+    },
+    {
+        "code": "INTEGRIDAD_OPERACIONAL",
+        "name": "INTEGRIDAD OPERACIONAL",
+        "description": "Categoría importada desde el Excel PLAN DE TRABAJO JAGUARES 2026: INTEGRIDAD OPERACIONAL.",
+        "display_order": 5,
+        "color": "#1890ff",
+        "icon": "SafetyOutlined"
     },
     {
         "code": "ENTRENAMIENTO",
         "name": "ENTRENAMIENTO",
-        "description": "Capacitaciones y entrenamientos recibidos",
-        "display_order": 5,
-        "color": "#722ed1",
+        "description": "Categoría importada desde el Excel PLAN DE TRABAJO JAGUARES 2026: ENTRENAMIENTO.",
+        "display_order": 6,
+        "color": "#13c2c2",
         "icon": "BookOutlined"
     },
     {
-        "code": "ENTRENAMIENTO_DICTAR",
-        "name": "ENTRENAMIENTOS A DICTAR POR EL TAE",
-        "description": "Capacitaciones impartidas por el TAE a terceros",
-        "display_order": 6,
-        "color": "#13c2c2",
-        "icon": "TeamOutlined"
+        "code": "ASEGURAMIENTO",
+        "name": "ASEGURAMIENTO",
+        "description": "Categoría importada desde el Excel PLAN DE TRABAJO JAGUARES 2026: ASEGURAMIENTO.",
+        "display_order": 7,
+        "color": "#eb2f96",
+        "icon": "CheckCircleOutlined"
+    },
+    {
+        "code": "SALUD_Y_SEGURIDAD",
+        "name": "SALUD Y SEGURIDAD",
+        "description": "Categoría importada desde el Excel PLAN DE TRABAJO JAGUARES 2026: SALUD Y SEGURIDAD.",
+        "display_order": 8,
+        "color": "#ff4d4f",
+        "icon": "AlertOutlined"
     },
     {
         "code": "PROCESOS",
-        "name": "PLAN DE ACTIVIDADES POR PROCESOS",
-        "description": "Actividades de mantenimiento e inspección de equipos",
-        "display_order": 7,
-        "color": "#eb2f96",
+        "name": "PROCESOS",
+        "description": "Categoría importada desde el Excel PLAN DE TRABAJO JAGUARES 2026: PROCESOS.",
+        "display_order": 9,
+        "color": "#2f54eb",
         "icon": "ToolOutlined"
     },
     {
-        "code": "PDI",
-        "name": "PLAN DE ACTIVIDADES PDI",
-        "description": "Plan de Desarrollo Individual",
-        "display_order": 8,
-        "color": "#faad14",
-        "icon": "StarOutlined"
+        "code": "SOPORTE_A_PRODUCCION",
+        "name": "SOPORTE A PRODUCCION",
+        "description": "Categoría importada desde el Excel PLAN DE TRABAJO JAGUARES 2026: SOPORTE A PRODUCCION.",
+        "display_order": 10,
+        "color": "#fa8c16",
+        "icon": "CarryOutOutlined"
     },
 ]
 
@@ -162,134 +178,93 @@ EMERGENCY_TYPES = [
 ]
 
 # ============================================
-# PLANTILLAS DE ACTIVIDADES (93+ actividades)
+# PLANTILLAS DE ACTIVIDADES (53 actividades)
 # ============================================
 
 ACTIVITY_TEMPLATES = [
     # ==========================================
-    # 1. IMPLEMENTACIÓN INTERNA SIO (11 actividades)
+    # PLAN DE DESARROLLO (2 actividades)
     # ==========================================
-    {"category_code": "SIO", "code": "SIO-001", "name": "Diligenciar formato de recordación de riesgos en atención de emergencias", "requires_evidence": True, "is_critical": False, "default_frequency": 5, "display_order": 1},
-    {"category_code": "SIO", "code": "SIO-002", "name": "Diligenciar formato de recordación de riesgos en la conducción", "requires_evidence": True, "is_critical": False, "default_frequency": 2, "display_order": 2},
-    {"category_code": "SIO", "code": "SIO-003", "name": "No. Caminatas Gerenciales", "requires_evidence": True, "is_critical": False, "default_frequency": 1, "display_order": 3},
-    {"category_code": "SIO", "code": "SIO-004", "name": "No. Inspecciones SIO", "requires_evidence": True, "is_critical": False, "default_frequency": 1, "display_order": 4},
-    {"category_code": "SIO", "code": "SIO-005", "name": "No. Observaciones de Conducción de Equipos Liviano/Mediano", "requires_evidence": True, "is_critical": False, "default_frequency": 1, "display_order": 5},
-    {"category_code": "SIO", "code": "SIO-006", "name": "No. Observaciones de Tareas Críticas (4 Mensuales)", "requires_evidence": True, "is_critical": True, "default_frequency": 1, "display_order": 6},
-    {"category_code": "SIO", "code": "SIO-007", "name": "No. Observaciones PPABC", "requires_evidence": True, "is_critical": False, "default_frequency": 1, "display_order": 7},
-    {"category_code": "SIO", "code": "SIO-008", "name": "No. Reporte CAS (Cada TAE Realizará 1 Reporte por Trimestre) y verificación de su cierre", "requires_evidence": True, "is_critical": False, "default_frequency": 0, "display_order": 8},
-    {"category_code": "SIO", "code": "SIO-009", "name": "Observación de tercero a TAEs en la conducción de equipo mediano", "requires_evidence": True, "is_critical": False, "default_frequency": 0, "display_order": 9},
-    {"category_code": "SIO", "code": "SIO-010", "name": "No. Reuniones de Comité de Seguridad", "requires_evidence": True, "is_critical": False, "default_frequency": 1, "display_order": 10},
-
+    {"category_code": "PLAN_DE_DESARROLLO", "code": "PLAN_DE_DESARROLLO-001", "name": "Actualizar tablero de indicador de desempeño individual", "description": "Actualizar tablero de indicador de desempeño individual", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 1},
+    {"category_code": "PLAN_DE_DESARROLLO", "code": "PLAN_DE_DESARROLLO-002", "name": "Reunion de PDI", "description": "Reunion de PDI", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 2},
     # ==========================================
-    # 2. SISTEMA DE EMERGENCIAS (9 actividades - métricas)
+    # OPERACIONAL (9 actividades)
     # ==========================================
-    {"category_code": "EMERGENCIAS", "code": "EMG-001", "name": "No. de emergencias por lesión atendidas AL", "requires_evidence": True, "is_critical": True, "default_frequency": 0, "display_order": 1},
-    {"category_code": "EMERGENCIAS", "code": "EMG-002", "name": "No. de emergencias por conato atendidas", "requires_evidence": True, "is_critical": True, "default_frequency": 0, "display_order": 2},
-    {"category_code": "EMERGENCIAS", "code": "EMG-003", "name": "No. de emergencias o reportes por DAÑOS", "requires_evidence": True, "is_critical": False, "default_frequency": 0, "display_order": 3},
-    {"category_code": "EMERGENCIAS", "code": "EMG-004", "name": "No. Emergencias por enfermedad general", "requires_evidence": True, "is_critical": False, "default_frequency": 0, "display_order": 4},
-    {"category_code": "EMERGENCIAS", "code": "EMG-005", "name": "No. de emergencias o reportes por impacto ambiental", "requires_evidence": True, "is_critical": True, "default_frequency": 0, "display_order": 5},
-    {"category_code": "EMERGENCIAS", "code": "EMG-006", "name": "No. de emergencias atendidas a comunidad", "requires_evidence": True, "is_critical": False, "default_frequency": 0, "display_order": 6},
-    {"category_code": "EMERGENCIAS", "code": "EMG-007", "name": "Incidentes deportivos", "requires_evidence": True, "is_critical": False, "default_frequency": 0, "display_order": 7},
-    {"category_code": "EMERGENCIAS", "code": "EMG-008", "name": "No Clasificados", "requires_evidence": True, "is_critical": False, "default_frequency": 0, "display_order": 8},
-
+    {"category_code": "OPERACIONAL", "code": "OPERACIONAL-001", "name": "Asistencia a reunión diaria (G-COM)", "description": "Asistencia a reunión diaria (G-COM)", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 1},
+    {"category_code": "OPERACIONAL", "code": "OPERACIONAL-002", "name": "Auditoría de SSI en equipo Minero", "description": "Auditoría de SSI en equipo Minero", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 2},
+    {"category_code": "OPERACIONAL", "code": "OPERACIONAL-003", "name": "Entrega de extintores.", "description": "Entrega de extintores.", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 3},
+    {"category_code": "OPERACIONAL", "code": "OPERACIONAL-004", "name": "Entregas de equipo a taller", "description": "Entregas de equipo a taller", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 4},
+    {"category_code": "OPERACIONAL", "code": "OPERACIONAL-005", "name": "Actualizar informe de disponibilidad diaria de las Unidades de Emergencia.", "description": "Actualizar informe de disponibilidad diaria de las Unidades de Emergencia.", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 5},
+    {"category_code": "OPERACIONAL", "code": "OPERACIONAL-006", "name": "Envio de Informe de faltantes de la máquina (Inventario)", "description": "Envio de Informe de faltantes de la máquina (Inventario)", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 6},
+    {"category_code": "OPERACIONAL", "code": "OPERACIONAL-007", "name": "Mantenimiento de unidades de emergencia", "description": "Mantenimiento de unidades de emergencia", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 7},
+    {"category_code": "OPERACIONAL", "code": "OPERACIONAL-008", "name": "Organizar esquema de emergencia", "description": "Organizar esquema de emergencia", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 8},
+    {"category_code": "OPERACIONAL", "code": "OPERACIONAL-009", "name": "Participacion de Simulacros", "description": "Participacion de Simulacros", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 9},
     # ==========================================
-    # 3. PROGRAMA DE ACTIVIDADES DEL TAE (35 actividades)
+    # PRIMEROS AUXILIOS (4 actividades)
     # ==========================================
-    {"category_code": "PROGRAMA_TAE", "code": "TAE-001", "name": "Actualización de bitácora", "requires_evidence": False, "is_critical": False, "default_frequency": 7, "display_order": 1},
-    {"category_code": "PROGRAMA_TAE", "code": "TAE-002", "name": "Aseo de Ambulancias por Aseocolba", "requires_evidence": False, "is_critical": False, "default_frequency": 2, "display_order": 2},
-    {"category_code": "PROGRAMA_TAE", "code": "TAE-003", "name": "Asistencia a reunión de miembros de un CAE", "requires_evidence": True, "is_critical": False, "default_frequency": 1, "display_order": 3},
-    {"category_code": "PROGRAMA_TAE", "code": "TAE-004", "name": "Asistencia a reunión general de coordinadores", "requires_evidence": True, "is_critical": False, "default_frequency": 1, "display_order": 4},
-    {"category_code": "PROGRAMA_TAE", "code": "TAE-005", "name": "Auditoría de SSI en equipo Minero", "requires_evidence": True, "is_critical": False, "default_frequency": 0, "display_order": 5},
-    {"category_code": "PROGRAMA_TAE", "code": "TAE-006", "name": "Cantidad de horas en el cargue de material caliente", "requires_evidence": True, "is_critical": False, "default_frequency": 0, "display_order": 6},
-    {"category_code": "PROGRAMA_TAE", "code": "TAE-007", "name": "Coordinar los pedidos de Medicamentos e Insumos y su distribución a los CAEs", "requires_evidence": True, "is_critical": False, "default_frequency": 1, "display_order": 7},
-    {"category_code": "PROGRAMA_TAE", "code": "TAE-008", "name": "Cumplir estándar de entregas de equipo a taller", "requires_evidence": True, "is_critical": False, "default_frequency": 0, "display_order": 8},
-    {"category_code": "PROGRAMA_TAE", "code": "TAE-009", "name": "Entrevista con psicóloga", "requires_evidence": False, "is_critical": False, "default_frequency": 0, "display_order": 9},
-    {"category_code": "PROGRAMA_TAE", "code": "TAE-010", "name": "Entrevista de PDI", "requires_evidence": False, "is_critical": False, "default_frequency": 0, "display_order": 10},
-    {"category_code": "PROGRAMA_TAE", "code": "TAE-011", "name": "Enviar informe de disponibilidad diaria de las Unidades de Emergencia y los Kilometrajes / Horómetros fin de semana", "requires_evidence": True, "is_critical": False, "default_frequency": 7, "display_order": 11},
-    {"category_code": "PROGRAMA_TAE", "code": "TAE-012", "name": "Envío de Informe de faltantes de la máquina", "requires_evidence": True, "is_critical": False, "default_frequency": 1, "display_order": 12},
-    {"category_code": "PROGRAMA_TAE", "code": "TAE-013", "name": "Inspección de Tanqueros", "requires_evidence": True, "is_critical": False, "default_frequency": 1, "display_order": 13},
-    {"category_code": "PROGRAMA_TAE", "code": "TAE-014", "name": "Inspección funcionamiento SSI luego de activación", "requires_evidence": True, "is_critical": True, "default_frequency": 0, "display_order": 14},
-    {"category_code": "PROGRAMA_TAE", "code": "TAE-015", "name": "Inspección preoperacional", "requires_evidence": True, "is_critical": False, "default_frequency": 7, "display_order": 15},
-    {"category_code": "PROGRAMA_TAE", "code": "TAE-016", "name": "Inspección y ubicación de equipos (Recorrido cada tercer día)", "requires_evidence": True, "is_critical": False, "default_frequency": 2, "display_order": 16},
-    {"category_code": "PROGRAMA_TAE", "code": "TAE-017", "name": "Inspecciones de Riesgos", "requires_evidence": True, "is_critical": False, "default_frequency": 1, "display_order": 17},
-    {"category_code": "PROGRAMA_TAE", "code": "TAE-018", "name": "Inventario de dotación de Ambulancias", "requires_evidence": True, "is_critical": False, "default_frequency": 1, "display_order": 18},
-    {"category_code": "PROGRAMA_TAE", "code": "TAE-019", "name": "Mantener actualizado tablero de indicador de desempeño individual y asegurar el soporte documental de sus actividades", "requires_evidence": True, "is_critical": False, "default_frequency": 1, "display_order": 19},
-    {"category_code": "PROGRAMA_TAE", "code": "TAE-020", "name": "Mantener unidades de emergencia asignados debidamente taqueados de combustible y agua", "requires_evidence": False, "is_critical": False, "default_frequency": 7, "display_order": 20},
-    {"category_code": "PROGRAMA_TAE", "code": "TAE-021", "name": "Mantenimiento de boquillas, accesorios CI y monitor", "requires_evidence": True, "is_critical": False, "default_frequency": 1, "display_order": 21},
-    {"category_code": "PROGRAMA_TAE", "code": "TAE-022", "name": "Mantenimiento de unidades de emergencia (Hacer Equipo con Bomberos)", "requires_evidence": True, "is_critical": False, "default_frequency": 1, "display_order": 22},
-    {"category_code": "PROGRAMA_TAE", "code": "TAE-023", "name": "Medición de caudales en las Bombas de máquinas contra incendio", "requires_evidence": True, "is_critical": False, "default_frequency": 1, "display_order": 23},
-    {"category_code": "PROGRAMA_TAE", "code": "TAE-024", "name": "Mediciones de gases", "requires_evidence": True, "is_critical": True, "default_frequency": 1, "display_order": 24},
-    {"category_code": "PROGRAMA_TAE", "code": "TAE-025", "name": "Número de servicios de Prevención en Cargue de Material en Caliente", "requires_evidence": True, "is_critical": False, "default_frequency": 0, "display_order": 25},
-    {"category_code": "PROGRAMA_TAE", "code": "TAE-026", "name": "Observación de tareas externas respecto de atención de emergencias", "requires_evidence": True, "is_critical": False, "default_frequency": 0, "display_order": 26},
-    {"category_code": "PROGRAMA_TAE", "code": "TAE-027", "name": "Participación en Simulacros", "requires_evidence": True, "is_critical": False, "default_frequency": 0, "display_order": 27},
-    {"category_code": "PROGRAMA_TAE", "code": "TAE-028", "name": "Prueba de calidad de espuma contra incendio", "requires_evidence": True, "is_critical": False, "default_frequency": 0, "display_order": 28},
-    {"category_code": "PROGRAMA_TAE", "code": "TAE-029", "name": "Verificación del sistema de Espuma de las máquinas contraincendio", "requires_evidence": True, "is_critical": False, "default_frequency": 1, "display_order": 29},
-    {"category_code": "PROGRAMA_TAE", "code": "TAE-030", "name": "Verificación Tanqueros", "requires_evidence": True, "is_critical": False, "default_frequency": 1, "display_order": 30},
-
+    {"category_code": "PRIMEROS_AUXILIOS", "code": "PRIMEROS_AUXILIOS-001", "name": "Carta Orden", "description": "Carta Orden", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 1},
+    {"category_code": "PRIMEROS_AUXILIOS", "code": "PRIMEROS_AUXILIOS-002", "name": "Curaciones", "description": "Curaciones", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 2},
+    {"category_code": "PRIMEROS_AUXILIOS", "code": "PRIMEROS_AUXILIOS-003", "name": "Atension de paciente en CAE - Primeros Auxilios / Medicamentos, Toma de signos", "description": "Atension de paciente en CAE - Primeros Auxilios / Medicamentos, Toma de signos", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 3},
+    {"category_code": "PRIMEROS_AUXILIOS", "code": "PRIMEROS_AUXILIOS-004", "name": "Remisiones / traslado a EPS", "description": "Remisiones / traslado a EPS", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 4},
     # ==========================================
-    # 4. ATENCIÓN PRIMEROS AUXILIOS (10 actividades)
+    # ALCOHOL Y DROGAS (4 actividades)
     # ==========================================
-    {"category_code": "PRIMEROS_AUXILIOS", "code": "PA-001", "name": "Carta Orden", "requires_evidence": True, "is_critical": False, "default_frequency": 0, "display_order": 1},
-    {"category_code": "PRIMEROS_AUXILIOS", "code": "PA-002", "name": "Citación a Muestreo de A&D", "requires_evidence": True, "is_critical": False, "default_frequency": 0, "display_order": 2},
-    {"category_code": "PRIMEROS_AUXILIOS", "code": "PA-003", "name": "Curaciones", "requires_evidence": True, "is_critical": False, "default_frequency": 0, "display_order": 3},
-    {"category_code": "PRIMEROS_AUXILIOS", "code": "PA-004", "name": "Evacuaciones", "requires_evidence": True, "is_critical": True, "default_frequency": 0, "display_order": 4},
-    {"category_code": "PRIMEROS_AUXILIOS", "code": "PA-005", "name": "Inyectología", "requires_evidence": True, "is_critical": False, "default_frequency": 0, "display_order": 5},
-    {"category_code": "PRIMEROS_AUXILIOS", "code": "PA-006", "name": "Primeros Auxilios", "requires_evidence": True, "is_critical": True, "default_frequency": 0, "display_order": 6},
-    {"category_code": "PRIMEROS_AUXILIOS", "code": "PA-007", "name": "Realización de pruebas de A&D", "requires_evidence": True, "is_critical": False, "default_frequency": 0, "display_order": 7},
-    {"category_code": "PRIMEROS_AUXILIOS", "code": "PA-008", "name": "Remisión EPS", "requires_evidence": True, "is_critical": False, "default_frequency": 0, "display_order": 8},
-    {"category_code": "PRIMEROS_AUXILIOS", "code": "PA-009", "name": "Soporte a pacientes incapacitados (hotel, transporte)", "requires_evidence": True, "is_critical": False, "default_frequency": 0, "display_order": 9},
-
+    {"category_code": "ALCOHOL_Y_DROGAS", "code": "ALCOHOL_Y_DROGAS-001", "name": "Citacion de Alcohol y Drogas", "description": "Citacion de Alcohol y Drogas", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 1},
+    {"category_code": "ALCOHOL_Y_DROGAS", "code": "ALCOHOL_Y_DROGAS-002", "name": "Enviar informe de resultados de Alcohol y  Drogas", "description": "Enviar informe de resultados de Alcohol y  Drogas", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 2},
+    {"category_code": "ALCOHOL_Y_DROGAS", "code": "ALCOHOL_Y_DROGAS-003", "name": "Mantener actualizado tablero de muestreo de A&D", "description": "Mantener actualizado tablero de muestreo de A&D", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 3},
+    {"category_code": "ALCOHOL_Y_DROGAS", "code": "ALCOHOL_Y_DROGAS-004", "name": "Realizacion de Muestreo de Alcohol y  Drogas", "description": "Realizacion de Muestreo de Alcohol y  Drogas", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 4},
     # ==========================================
-    # 5. ENTRENAMIENTO (11 actividades)
+    # INTEGRIDAD OPERACIONAL (5 actividades)
     # ==========================================
-    {"category_code": "ENTRENAMIENTO", "code": "ENT-001", "name": "Certificación de trabajo de altura", "requires_evidence": True, "is_critical": True, "default_frequency": 0, "display_order": 1},
-    {"category_code": "ENTRENAMIENTO", "code": "ENT-002", "name": "Entrenamiento en Conexión a Tanquero/hidrante", "requires_evidence": True, "is_critical": False, "default_frequency": 0, "display_order": 2},
-    {"category_code": "ENTRENAMIENTO", "code": "ENT-003", "name": "Entrenamiento en Postura Arnés", "requires_evidence": True, "is_critical": False, "default_frequency": 0, "display_order": 3},
-    {"category_code": "ENTRENAMIENTO", "code": "ENT-004", "name": "Entrenamiento en Postura EPP Línea de Fuego (Incluye air pack)", "requires_evidence": True, "is_critical": False, "default_frequency": 0, "display_order": 4},
-    {"category_code": "ENTRENAMIENTO", "code": "ENT-005", "name": "Entrenamiento en Rescate (nudos y sistemas de Anclaje)", "requires_evidence": True, "is_critical": False, "default_frequency": 0, "display_order": 5},
-    {"category_code": "ENTRENAMIENTO", "code": "ENT-006", "name": "Proceso de obtención Pase gris", "requires_evidence": True, "is_critical": True, "default_frequency": 0, "display_order": 6},
-    {"category_code": "ENTRENAMIENTO", "code": "ENT-007", "name": "Entrenamiento en seguridad básica", "requires_evidence": True, "is_critical": False, "default_frequency": 0, "display_order": 7},
-    {"category_code": "ENTRENAMIENTO", "code": "ENT-008", "name": "Entrenamiento mensual TAEs", "requires_evidence": True, "is_critical": False, "default_frequency": 1, "display_order": 8},
-    {"category_code": "ENTRENAMIENTO", "code": "ENT-009", "name": "Estudio de normas NFPA", "requires_evidence": True, "is_critical": False, "default_frequency": 0, "display_order": 9},
-    {"category_code": "ENTRENAMIENTO", "code": "ENT-010", "name": "Mantener actualizado refresco de muestreo de A&D", "requires_evidence": True, "is_critical": False, "default_frequency": 0, "display_order": 10},
-
+    {"category_code": "INTEGRIDAD_OPERACIONAL", "code": "INTEGRIDAD_OPERACIONAL-001", "name": "Diligenciar formato de recordacion de riesgos en atencion de emergencias", "description": "Diligenciar formato de recordacion de riesgos en atencion de emergencias", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 1},
+    {"category_code": "INTEGRIDAD_OPERACIONAL", "code": "INTEGRIDAD_OPERACIONAL-002", "name": "Diligenciar Formato de Recordacion de Riesgos en la Conduccion", "description": "Diligenciar Formato de Recordacion de Riesgos en la Conduccion", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 2},
+    {"category_code": "INTEGRIDAD_OPERACIONAL", "code": "INTEGRIDAD_OPERACIONAL-003", "name": "No. Inspecciones SIO", "description": "No. Inspecciones SIO", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 3},
+    {"category_code": "INTEGRIDAD_OPERACIONAL", "code": "INTEGRIDAD_OPERACIONAL-004", "name": "No. Observaciones de Conduccion de Equipos Liviano/Mediano y/o evaluacion", "description": "No. Observaciones de Conduccion de Equipos Liviano/Mediano y/o evaluacion", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 4},
+    {"category_code": "INTEGRIDAD_OPERACIONAL", "code": "INTEGRIDAD_OPERACIONAL-005", "name": "No. Observaciones de Tareas Criticas", "description": "No. Observaciones de Tareas Criticas", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 5},
     # ==========================================
-    # 6. ENTRENAMIENTOS A DICTAR POR EL TAE (3 actividades)
+    # ENTRENAMIENTO (11 actividades)
     # ==========================================
-    {"category_code": "ENTRENAMIENTO_DICTAR", "code": "DICT-001", "name": "Entrenamiento a terceros para conducir ambulancia (Certificación de Conductores)", "requires_evidence": True, "is_critical": False, "default_frequency": 0, "display_order": 1},
-    {"category_code": "ENTRENAMIENTO_DICTAR", "code": "DICT-002", "name": "Entrenamiento descenso líneas de vida", "requires_evidence": True, "is_critical": False, "default_frequency": 0, "display_order": 2},
-    {"category_code": "ENTRENAMIENTO_DICTAR", "code": "DICT-003", "name": "Brigadistas Entrenados en CAE", "requires_evidence": True, "is_critical": False, "default_frequency": 0, "display_order": 3},
-
+    {"category_code": "ENTRENAMIENTO", "code": "ENTRENAMIENTO-001", "name": "Entrenamiento de Conductores de Ambulancia", "description": "Entrenamiento de Conductores de Ambulancia", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 1},
+    {"category_code": "ENTRENAMIENTO", "code": "ENTRENAMIENTO-002", "name": "Entrenamiento en Conexión a Tanquero/hidrante", "description": "Entrenamiento en Conexión a Tanquero/hidrante", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 2},
+    {"category_code": "ENTRENAMIENTO", "code": "ENTRENAMIENTO-003", "name": "Entrenamiento en Kit de Trauma", "description": "Entrenamiento en Kit de Trauma", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 3},
+    {"category_code": "ENTRENAMIENTO", "code": "ENTRENAMIENTO-004", "name": "Entrenamiento en Postura Arnes", "description": "Entrenamiento en Postura Arnes", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 4},
+    {"category_code": "ENTRENAMIENTO", "code": "ENTRENAMIENTO-005", "name": "Entrenamiento en Postura EPP Linea de Fuego (Incluye air pack)", "description": "Entrenamiento en Postura EPP Linea de Fuego (Incluye air pack)", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 5},
+    {"category_code": "ENTRENAMIENTO", "code": "ENTRENAMIENTO-006", "name": "Entrenamiento en RCP", "description": "Entrenamiento en RCP", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 6},
+    {"category_code": "ENTRENAMIENTO", "code": "ENTRENAMIENTO-007", "name": "Entrenamiento en Rescate (nudos y sistemas de Anclaje)", "description": "Entrenamiento en Rescate (nudos y sistemas de Anclaje)", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 7},
+    {"category_code": "ENTRENAMIENTO", "code": "ENTRENAMIENTO-008", "name": "Entrenamiento en seguridad básica", "description": "Entrenamiento en seguridad básica", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 8},
+    {"category_code": "ENTRENAMIENTO", "code": "ENTRENAMIENTO-009", "name": "Entrenamiento Lanzamiento de Linea de Vida", "description": "Entrenamiento Lanzamiento de Linea de Vida", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 9},
+    {"category_code": "ENTRENAMIENTO", "code": "ENTRENAMIENTO-010", "name": "Entrenamiento mensual TAEs", "description": "Entrenamiento mensual TAEs", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 10},
+    {"category_code": "ENTRENAMIENTO", "code": "ENTRENAMIENTO-011", "name": "Estudio de normas NFPA", "description": "Estudio de normas NFPA", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 11},
     # ==========================================
-    # 7. PLAN DE ACTIVIDADES POR PROCESOS (22 actividades)
+    # ASEGURAMIENTO (9 actividades)
     # ==========================================
-    {"category_code": "PROCESOS", "code": "PROC-001", "name": "Cambio de Batería a los controles de los monitores de las máquinas contraincendio", "requires_evidence": True, "is_critical": False, "default_frequency": 0, "display_order": 1},
-    {"category_code": "PROCESOS", "code": "PROC-002", "name": "Inspección de ARNESES", "requires_evidence": True, "is_critical": True, "default_frequency": 1, "display_order": 2},
-    {"category_code": "PROCESOS", "code": "PROC-003", "name": "Inspección de Bombas CI", "requires_evidence": True, "is_critical": True, "default_frequency": 1, "display_order": 3},
-    {"category_code": "PROCESOS", "code": "PROC-004", "name": "Inspección de escaleras", "requires_evidence": True, "is_critical": False, "default_frequency": 1, "display_order": 4},
-    {"category_code": "PROCESOS", "code": "PROC-005", "name": "Inspección de guardas", "requires_evidence": True, "is_critical": False, "default_frequency": 1, "display_order": 5},
-    {"category_code": "PROCESOS", "code": "PROC-006", "name": "Inventario de equipos SCBA", "requires_evidence": True, "is_critical": True, "default_frequency": 1, "display_order": 6},
-    {"category_code": "PROCESOS", "code": "PROC-007", "name": "Mantenimiento correctivo SCBA", "requires_evidence": True, "is_critical": False, "default_frequency": 0, "display_order": 7},
-    {"category_code": "PROCESOS", "code": "PROC-008", "name": "Mantenimiento preventivo SCBA (cambio aire, revisión arneses y PH, baterías y aseo general)", "requires_evidence": True, "is_critical": True, "default_frequency": 1, "display_order": 8},
-    {"category_code": "PROCESOS", "code": "PROC-009", "name": "Mantenimiento de equipos menores", "requires_evidence": True, "is_critical": False, "default_frequency": 1, "display_order": 9},
-    {"category_code": "PROCESOS", "code": "PROC-010", "name": "Inspección mensual y prueba de equipos menores", "requires_evidence": True, "is_critical": False, "default_frequency": 1, "display_order": 10},
-    {"category_code": "PROCESOS", "code": "PROC-011", "name": "Control de Inventarios y Funcionamientos de los radios", "requires_evidence": True, "is_critical": False, "default_frequency": 1, "display_order": 11},
-    {"category_code": "PROCESOS", "code": "PROC-012", "name": "Medición de Caudales en las Bombas CI", "requires_evidence": True, "is_critical": False, "default_frequency": 1, "display_order": 12},
-    {"category_code": "PROCESOS", "code": "PROC-013", "name": "Realización de Pruebas Posicheck", "requires_evidence": True, "is_critical": False, "default_frequency": 1, "display_order": 13},
-    {"category_code": "PROCESOS", "code": "PROC-014", "name": "Testado de Mangueras", "requires_evidence": True, "is_critical": False, "default_frequency": 0, "display_order": 14},
-    {"category_code": "PROCESOS", "code": "PROC-015", "name": "Toma de Tiempos de respuesta desde los CAEs", "requires_evidence": True, "is_critical": False, "default_frequency": 0, "display_order": 15},
-    {"category_code": "PROCESOS", "code": "PROC-016", "name": "Verificación del Vencimiento autorizaciones conducción", "requires_evidence": True, "is_critical": True, "default_frequency": 1, "display_order": 16},
-    {"category_code": "PROCESOS", "code": "PROC-017", "name": "Verificación del Vencimiento SOAT", "requires_evidence": True, "is_critical": True, "default_frequency": 1, "display_order": 17},
-    {"category_code": "PROCESOS", "code": "PROC-018", "name": "Medición de calidad de aire Sistema SCBA", "requires_evidence": True, "is_critical": True, "default_frequency": 0, "display_order": 18},
-    {"category_code": "PROCESOS", "code": "PROC-019", "name": "Medición de Índice de Masa Corporal", "requires_evidence": True, "is_critical": False, "default_frequency": 0, "display_order": 19},
-
+    {"category_code": "ASEGURAMIENTO", "code": "ASEGURAMIENTO-001", "name": "Inspeccion de CAE", "description": "Inspeccion de CAE", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 1},
+    {"category_code": "ASEGURAMIENTO", "code": "ASEGURAMIENTO-002", "name": "Inspeccion de Tanqueros", "description": "Inspeccion de Tanqueros", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 2},
+    {"category_code": "ASEGURAMIENTO", "code": "ASEGURAMIENTO-003", "name": "Inspección de Vias y ubicacion de Equipos de Cargue", "description": "Inspección de Vias y ubicacion de Equipos de Cargue", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 3},
+    {"category_code": "ASEGURAMIENTO", "code": "ASEGURAMIENTO-004", "name": "Inspeccion preoperacional Ambulancia", "description": "Inspeccion preoperacional Ambulancia", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 4},
+    {"category_code": "ASEGURAMIENTO", "code": "ASEGURAMIENTO-005", "name": "Inspeccion preoperacional de Maquina de bomberos", "description": "Inspeccion preoperacional de Maquina de bomberos", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 5},
+    {"category_code": "ASEGURAMIENTO", "code": "ASEGURAMIENTO-006", "name": "Inspeccion Unidad Hazmat", "description": "Inspeccion Unidad Hazmat", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 6},
+    {"category_code": "ASEGURAMIENTO", "code": "ASEGURAMIENTO-007", "name": "Recepcion de Reportes de Tareas Criticas / Lejanas", "description": "Recepcion de Reportes de Tareas Criticas / Lejanas", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 7},
+    {"category_code": "ASEGURAMIENTO", "code": "ASEGURAMIENTO-008", "name": "Revision SSI/SCI, post Activacion", "description": "Revision SSI/SCI, post Activacion", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 8},
+    {"category_code": "ASEGURAMIENTO", "code": "ASEGURAMIENTO-009", "name": "Verificar Aseo de Ambulancias por Aseocolba", "description": "Verificar Aseo de Ambulancias por Aseocolba", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 9},
     # ==========================================
-    # 8. PLAN DE ACTIVIDADES PDI (4 actividades - típicamente específicas)
+    # SALUD Y SEGURIDAD (2 actividades)
     # ==========================================
-    {"category_code": "PDI", "code": "PDI-001", "name": "Actividad PDI 1", "requires_evidence": True, "is_critical": False, "default_frequency": 0, "display_order": 1},
-    {"category_code": "PDI", "code": "PDI-002", "name": "Actividad PDI 2", "requires_evidence": True, "is_critical": False, "default_frequency": 0, "display_order": 2},
-    {"category_code": "PDI", "code": "PDI-003", "name": "Actividad PDI 3", "requires_evidence": True, "is_critical": False, "default_frequency": 0, "display_order": 3},
-    {"category_code": "PDI", "code": "PDI-004", "name": "Actividad PDI 4", "requires_evidence": True, "is_critical": False, "default_frequency": 0, "display_order": 4},
+    {"category_code": "SALUD_Y_SEGURIDAD", "code": "SALUD_Y_SEGURIDAD-001", "name": "Reportes de Accidentes de Trabajo", "description": "Reportes de Accidentes de Trabajo", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 1},
+    {"category_code": "SALUD_Y_SEGURIDAD", "code": "SALUD_Y_SEGURIDAD-002", "name": "Reporte de actividades fisicas  (Cerrejon en movimiento, Pausas activas, Actividad fisica en Entrenamiento, Actividad fisica Particulares)", "description": "Reporte de actividades fisicas  (Cerrejon en movimiento, Pausas activas, Actividad fisica en Entrenamiento, Actividad fisica Particulares)", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 2},
+    # ==========================================
+    # PROCESOS (2 actividades)
+    # ==========================================
+    {"category_code": "PROCESOS", "code": "PROCESOS-001", "name": "Seguimiento Proceso", "description": "Seguimiento Proceso", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 1},
+    {"category_code": "PROCESOS", "code": "PROCESOS-002", "name": "Seguimiento Soporte de Proceso", "description": "Seguimiento Soporte de Proceso", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 2},
+    # ==========================================
+    # SOPORTE A PRODUCCION (5 actividades)
+    # ==========================================
+    {"category_code": "SOPORTE_A_PRODUCCION", "code": "SOPORTE_A_PRODUCCION-001", "name": "Soporte a Pacientes Incapacitados (Taxi/Hotel)", "description": "Soporte a Pacientes Incapacitados (Taxi/Hotel)", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 1},
+    {"category_code": "SOPORTE_A_PRODUCCION", "code": "SOPORTE_A_PRODUCCION-002", "name": "Soporte en Cargue de Material Caliente", "description": "Soporte en Cargue de Material Caliente", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 2},
+    {"category_code": "SOPORTE_A_PRODUCCION", "code": "SOPORTE_A_PRODUCCION-003", "name": "Soporte en Empuje de Material Caliente", "description": "Soporte en Empuje de Material Caliente", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 3},
+    {"category_code": "SOPORTE_A_PRODUCCION", "code": "SOPORTE_A_PRODUCCION-004", "name": "Soporte en Perforacion de Pozos Calientes", "description": "Soporte en Perforacion de Pozos Calientes", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 4},
+    {"category_code": "SOPORTE_A_PRODUCCION", "code": "SOPORTE_A_PRODUCCION-005", "name": "Soprte a cargue de pozo en caliente", "description": "Soprte a cargue de pozo en caliente", "requires_evidence": False, "is_critical": False, "default_frequency": 1, "display_order": 5},
 ]
 
 # ============================================
@@ -339,3 +314,72 @@ USER_ROLES = [
     {"code": "EMPLOYEE", "name": "Empleado", "description": "Consulta y reportes personales"},
     {"code": "GUEST", "name": "Invitado", "description": "Solo lectura"},
 ]
+
+
+# ============================================
+# FUNCION SEED DATABASE
+# ============================================
+
+def seed_database():
+    """Poblar la base de datos con datos iniciales."""
+    from app.core.database import SessionLocal, engine
+    from app.models.user import User, Base
+    from app.models.activity_category import ActivityCategory
+    from app.models.activity_template import ActivityTemplate
+    from app.models.emergency import EmergencyType
+    from app.core.security import get_password_hash
+
+    Base.metadata.create_all(bind=engine)
+    db = SessionLocal()
+
+    try:
+        existing_cats = db.query(ActivityCategory).count()
+        if existing_cats == 0:
+            for cat_data in ACTIVITY_CATEGORIES:
+                cat = ActivityCategory(**cat_data, is_active=True)
+                db.add(cat)
+            db.commit()
+            print(f"Creadas {len(ACTIVITY_CATEGORIES)} categorias")
+
+        existing_types = db.query(EmergencyType).count()
+        if existing_types == 0:
+            for et_data in EMERGENCY_TYPES:
+                et = EmergencyType(**et_data, is_active=True)
+                db.add(et)
+            db.commit()
+            print(f"Creados {len(EMERGENCY_TYPES)} tipos de emergencias")
+
+        existing_templates = db.query(ActivityTemplate).count()
+        if existing_templates == 0:
+            categories = {c.code: c.id for c in db.query(ActivityCategory).all()}
+            for tmpl_data in ACTIVITY_TEMPLATES:
+                cat_code = tmpl_data.pop("category_code")
+                if cat_code in categories:
+                    tmpl = ActivityTemplate(**tmpl_data, category_id=categories[cat_code], is_active=True)
+                    db.add(tmpl)
+            db.commit()
+            print(f"Creadas {len(ACTIVITY_TEMPLATES)} plantillas")
+
+        admin = db.query(User).filter(User.role == "Administrador").first()
+        if not admin:
+            admin = User(
+                email="admin@cerrejon.com",
+                hashed_password=get_password_hash("Admin2026"),
+                full_name="Administrador Sistema",
+                role="Administrador",
+                is_active=True
+            )
+            db.add(admin)
+            db.commit()
+            print("Usuario admin creado: admin@cerrejon.com / Admin2026")
+
+        print("Seed completado exitosamente")
+    except Exception as e:
+        db.rollback()
+        print(f"Error en seed: {e}")
+    finally:
+        db.close()
+
+
+if __name__ == "__main__":
+    seed_database()

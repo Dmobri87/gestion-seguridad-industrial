@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Card, Table, Button, Select, Space, Tag, Modal, Form, Input, message, Typography, Row, Col, Statistic, Descriptions, Timeline } from 'antd';
+import { Card, Table, Button, Select, Space, Tag, Modal, Form, Input, message, Typography, Row, Col, Statistic, Descriptions, Timeline, Grid } from 'antd';
 import { PlusOutlined, AlertOutlined, CheckCircleOutlined, ClockCircleOutlined, CarOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { emergenciesApi } from '../../services/api';
@@ -7,6 +7,7 @@ import { useAuthStore } from '../../stores/authStore';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
+const { useBreakpoint } = Grid;
 
 interface Emergency {
   id: number;
@@ -34,6 +35,8 @@ interface EmergencyType {
 }
 
 const EmergenciesPage = () => {
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
   const [loading, setLoading] = useState(true);
   const [emergencies, setEmergencies] = useState<Emergency[]>([]);
   const [emergencyTypes, setEmergencyTypes] = useState<EmergencyType[]>([]);
@@ -210,32 +213,32 @@ const EmergenciesPage = () => {
   return (
     <div>
       <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col span={6}>
-          <Card>
-            <Statistic title="Total Emergencias" value={emergencies.length} prefix={<AlertOutlined />} />
+        <Col xs={12} sm={12} md={6}>
+          <Card style={{ minHeight: 90 }} styles={{ body: { padding: '12px 16px' } }}>
+            <Statistic title={isMobile ? 'Total' : 'Total Emergencias'} value={emergencies.length} prefix={<AlertOutlined />} />
           </Card>
         </Col>
-        <Col span={6}>
-          <Card>
-            <Statistic title="Activas" value={activeEmergencies} valueStyle={{ color: activeEmergencies > 0 ? '#cf1322' : '#3f8600' }} />
+        <Col xs={12} sm={12} md={6}>
+          <Card style={{ minHeight: 90 }} styles={{ body: { padding: '12px 16px' } }}>
+            <Statistic title={isMobile ? 'Activas' : 'Activas'} value={activeEmergencies} valueStyle={{ color: activeEmergencies > 0 ? '#cf1322' : '#3f8600' }} />
           </Card>
         </Col>
-        <Col span={6}>
-          <Card>
-            <Statistic title="Tiempo Resp. Prom." value={avgResponseTime.toFixed(1)} suffix="min" />
+        <Col xs={12} sm={12} md={6}>
+          <Card style={{ minHeight: 90 }} styles={{ body: { padding: '12px 16px' } }}>
+            <Statistic title={isMobile ? 'Resp. Prom.' : 'Tiempo Resp. Prom.'} value={avgResponseTime.toFixed(1)} suffix="min" />
           </Card>
         </Col>
-        <Col span={6}>
-          <Card>
-            <Statistic title="Cerradas" value={emergencies.filter(e => e.status === 'Cerrada').length} valueStyle={{ color: '#3f8600' }} />
+        <Col xs={12} sm={12} md={6}>
+          <Card style={{ minHeight: 90 }} styles={{ body: { padding: '12px 16px' } }}>
+            <Statistic title={isMobile ? 'Cerradas' : 'Cerradas'} value={emergencies.filter(e => e.status === 'Cerrada').length} valueStyle={{ color: '#3f8600' }} />
           </Card>
         </Col>
       </Row>
 
       <Card>
-        <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between' }}>
-          <Title level={4} style={{ margin: 0 }}>Registro de Emergencias</Title>
-          <Space>
+        <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+          <Title level={4} style={{ margin: 0, whiteSpace: 'nowrap', flexShrink: 0 }}>Registro de Emergencias</Title>
+          <Space wrap>
             <Select value={month} onChange={setMonth} options={months} style={{ width: 140 }} />
             <Select
               value={year}
@@ -244,18 +247,19 @@ const EmergenciesPage = () => {
               style={{ width: 100 }}
             />
             <Button type="primary" danger icon={<PlusOutlined />} onClick={() => setModalOpen(true)}>
-              Reportar Emergencia
+              {isMobile ? 'Reportar' : 'Reportar Emergencia'}
             </Button>
           </Space>
         </div>
 
         <Table
-          dataSource={emergencies}
-          columns={columns}
-          rowKey="id"
-          loading={loading}
-          pagination={{ pageSize: 10 }}
-        />
+            dataSource={emergencies}
+            columns={columns}
+            rowKey="id"
+            loading={loading}
+            scroll={{ x: 'max-content' }}
+            pagination={{ pageSize: 10 }}
+          />
       </Card>
 
       {/* Modal para crear emergencia */}

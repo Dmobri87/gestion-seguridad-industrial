@@ -26,6 +26,9 @@ class ActivityCategory(Base):
     # Estado
     is_active = Column(Boolean, default=True)
 
+    # Solo visible/planificable por coordinadores
+    coordinator_only = Column(Boolean, default=False)
+
     # Organización (si es específica de una org, null = global)
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True)
 
@@ -62,6 +65,9 @@ class ActivityTemplate(Base):
     requires_evidence = Column(Boolean, default=False)  # Requiere foto/documento
     is_critical = Column(Boolean, default=False)  # Actividad crítica
     default_frequency = Column(Integer, default=1)  # Frecuencia sugerida por ciclo
+
+    # Solo planificable por coordinadores (hereda de la categoría)
+    coordinator_only = Column(Boolean, default=False)
 
     # Estado
     is_active = Column(Boolean, default=True)

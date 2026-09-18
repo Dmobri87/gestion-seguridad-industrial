@@ -10,10 +10,13 @@ const api = axios.create({
   },
 });
 
+let isRefreshing = false;
+let failedQueue: Array<{ resolve: (token: string) => void; reject: (error: any) => void }> = [];
+
 // Interceptor para agregar token
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('access_token');
+    const token = localStorage.getItem('access_token') || localStorage.getItem('token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -27,21 +30,64 @@ api.interceptors.request.use(
 // Interceptor para manejar errores
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      // No redirigir a /login durante el flujo de autenticación 2FA
-      const requestUrl = error.config?.url || '';
-      const isAuthEndpoint =
-        requestUrl.includes('/auth/login') ||
-        requestUrl.includes('/auth/verify-otp');
+  async (error) => {
+    const originalRequest = (error.config || {}) as any;
+    const requestUrl = originalRequest.url || '';
+    const isAuthEndpoint =
+      requestUrl.includes('/auth/login') ||
+      requestUrl.includes('/auth/verify-otp') ||
+      requestUrl.includes('/auth/refresh-token');
 
-      if (!isAuthEndpoint) {
-        // Limpiar todo el estado de autenticación de forma consistente
+    if (error.response?.status === 401 && !originalRequest._retry && !isAuthEndpoint) {
+      if (isRefreshing) {
+        return new Promise((resolve, reject) => {
+          failedQueue.push({ resolve, reject });
+        }).then((token) => {
+          originalRequest.headers = originalRequest.headers || {};
+          originalRequest.headers.Authorization = `Bearer ${token}`;
+          return api(originalRequest);
+        });
+      }
+
+      originalRequest._retry = true;
+      isRefreshing = true;
+
+      const refreshToken = localStorage.getItem('refresh_token');
+      if (refreshToken) {
+        try {
+          const { data } = await axios.post('/api/v1/auth/refresh-token', { refresh_token: refreshToken });
+          localStorage.setItem('access_token', data.access_token);
+          localStorage.setItem('token', data.access_token);
+          localStorage.setItem('refresh_token', data.refresh_token);
+          api.defaults.headers.common.Authorization = `Bearer ${data.access_token}`;
+
+          failedQueue.forEach((promise) => promise.resolve(data.access_token));
+          failedQueue = [];
+
+          originalRequest.headers = originalRequest.headers || {};
+          originalRequest.headers.Authorization = `Bearer ${data.access_token}`;
+          return api(originalRequest);
+        } catch (refreshError) {
+          failedQueue.forEach((promise) => promise.reject(refreshError));
+          failedQueue = [];
+          localStorage.removeItem('access_token');
+          localStorage.removeItem('token');
+          localStorage.removeItem('refresh_token');
+          localStorage.removeItem('auth-storage');
+          window.location.href = '/login';
+        } finally {
+          isRefreshing = false;
+        }
+      } else {
+        isRefreshing = false;
         localStorage.removeItem('access_token');
+        localStorage.removeItem('token');
+        localStorage.removeItem('refresh_token');
         localStorage.removeItem('auth-storage');
         window.location.href = '/login';
       }
     }
+
     return Promise.reject(error);
   }
 );
@@ -67,6 +113,11 @@ export const authApi = {
       email,
       otp_code: otpCode,
     });
+    return response.data;
+  },
+
+  resendOtp: async (email: string) => {
+    const response = await api.post('/auth/resend-otp', { email });
     return response.data;
   },
 
@@ -131,6 +182,16 @@ export const usersApi = {
 
   delete: async (id: number) => {
     const response = await api.delete(`/users/${id}`);
+    return response.data;
+  },
+
+  heartbeat: async (currentRoute: string) => {
+    const response = await api.post('/users/presence/heartbeat', null, { params: { current_route: currentRoute } });
+    return response.data;
+  },
+
+  getPresenceList: async () => {
+    const response = await api.get('/users/presence/list');
     return response.data;
   },
 };
@@ -205,8 +266,10 @@ export const activityApi = {
     return response.data;
   },
 
-  getTemplatesGrouped: async () => {
-    const response = await api.get('/activity-templates/by-category');
+  getTemplatesGrouped: async (coordinatorOnly?: boolean) => {
+    const params: Record<string, any> = {};
+    if (coordinatorOnly !== undefined) params.coordinator_only = coordinatorOnly;
+    const response = await api.get('/activity-templates/by-category', { params });
     return response.data;
   },
 
@@ -253,6 +316,11 @@ export const planningApi = {
     return response.data;
   },
 
+  deletePlan: async (planId: number) => {
+    const response = await api.delete(`/planning/plans/${planId}`);
+    return response.data;
+  },
+
   approvePlan: async (planId: number) => {
     const response = await api.post(`/planning/plans/${planId}/approve`);
     return response.data;
@@ -281,6 +349,18 @@ export const planningApi = {
     return response.data;
   },
 
+  deleteActivity: async (activityId: number) => {
+    const response = await api.delete(`/planning/activities/${activityId}`);
+    return response.data;
+  },
+
+  getDeletionAuditLogs: async (limit = 100) => {
+    const response = await api.get('/planning/audit/deletions', {
+      params: { limit },
+    });
+    return response.data;
+  },
+
   getMyPlan: async (year: number, month: number) => {
     const response = await api.get('/planning/my-plan', {
       params: { year, month },
@@ -306,8 +386,15 @@ export const executionsApi = {
     return response.data;
   },
 
-  getMyToday: async () => {
-    const response = await api.get('/executions/my-today');
+  getMyToday: async (year?: number, month?: number) => {
+    const response = await api.get('/executions/my-today', {
+      params: { year, month },
+    });
+    return response.data;
+  },
+
+  getAllMyPending: async () => {
+    const response = await api.get('/executions/my-pending-all');
     return response.data;
   },
 
@@ -342,8 +429,24 @@ export const executionsApi = {
     return response.data;
   },
 
+  getSecureFileBlob: async (fileUrl: string) => {
+    const filename = fileUrl.split('/').pop();
+    if (!filename) {
+      throw new Error('URL de archivo inválida');
+    }
+    const response = await api.get(`/executions/files/serve/${filename}`, {
+      responseType: 'blob',
+    });
+    return response.data as Blob;
+  },
+
   deleteFile: async (executionId: number, fileId: number) => {
     const response = await api.delete(`/executions/${executionId}/files/${fileId}`);
+    return response.data;
+  },
+
+  correct: async (executionId: number, data: { observation?: string; novelty_description?: string; status?: string; location?: string; quantity?: number }) => {
+    const response = await api.put(`/executions/${executionId}/correct`, data);
     return response.data;
   },
 };
@@ -353,9 +456,9 @@ export const executionsApi = {
 // ==========================================
 
 export const dashboardApi = {
-  getData: async (year: number, month: number) => {
+  getData: async (year: number, month?: number, userId?: number) => {
     const response = await api.get('/dashboard/', {
-      params: { year, month },
+      params: { year, month, user_id: userId },
     });
     return response.data;
   },
@@ -363,6 +466,20 @@ export const dashboardApi = {
   getComplianceChart: async (year: number) => {
     const response = await api.get('/dashboard/compliance-chart', {
       params: { year },
+    });
+    return response.data;
+  },
+
+  recalculate: async (year: number, month: number) => {
+    const response = await api.post('/dashboard/recalculate', null, {
+      params: { year, month },
+    });
+    return response.data;
+  },
+
+  generateSummary: async (year: number, month: number) => {
+    const response = await api.post('/dashboard/generate-summary', null, {
+      params: { year, month },
     });
     return response.data;
   },
@@ -497,6 +614,86 @@ export const certificationsApi = {
 
   getSummary: async () => {
     const response = await api.get('/certifications/summary');
+    return response.data;
+  },
+};
+
+// ==========================================
+// REPORTS
+// ==========================================
+
+export const reportsApi = {
+  getTypes: async () => {
+    const response = await api.get('/reports/types');
+    return response.data;
+  },
+
+  getPreview: async (reportType: string, params: { year: number; month?: number; user_id?: number }) => {
+    const response = await api.get(`/reports/preview/${reportType}`, { params });
+    return response.data;
+  },
+
+  exportReport: async (
+    reportType: string,
+    format: 'excel' | 'pdf',
+    params: { year: number; month?: number; user_id?: number }
+  ) => {
+    const response = await api.get(`/reports/export/${reportType}`, {
+      params: { format, ...params },
+      responseType: 'blob',
+    });
+    return response;
+  },
+};
+
+// ==========================================
+// NOTIFICATIONS
+// ==========================================
+
+export const notificationsApi = {
+  getAll: async (params?: {
+    page?: number;
+    page_size?: number;
+    unread_only?: boolean;
+    type?: string;
+  }) => {
+    const response = await api.get('/notifications/', { params });
+    return response.data;
+  },
+
+  getUnreadCount: async () => {
+    const response = await api.get('/notifications/unread-count');
+    return response.data;
+  },
+
+  markAsRead: async (id: number) => {
+    const response = await api.put(`/notifications/${id}/read`);
+    return response.data;
+  },
+
+  markAllAsRead: async () => {
+    const response = await api.put('/notifications/read-all');
+    return response.data;
+  },
+
+  delete: async (id: number) => {
+    const response = await api.delete(`/notifications/${id}`);
+    return response.data;
+  },
+};
+
+// ==========================================
+// ALERTS
+// ==========================================
+
+export const alertsApi = {
+  checkExpirations: async () => {
+    const response = await api.get('/alerts/check-expirations');
+    return response.data;
+  },
+
+  getSummary: async () => {
+    const response = await api.get('/alerts/summary');
     return response.data;
   },
 };

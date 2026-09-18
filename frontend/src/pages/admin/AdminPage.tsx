@@ -6,9 +6,10 @@ import {
 } from 'antd';
 import {
   PlusOutlined, UserOutlined, TeamOutlined, EditOutlined, DeleteOutlined,
-  SettingOutlined, CrownOutlined, CheckCircleOutlined, StopOutlined
+  SettingOutlined, CrownOutlined, CheckCircleOutlined, StopOutlined,
+  KeyOutlined, CopyOutlined, EyeOutlined
 } from '@ant-design/icons';
-import { usersApi, workGroupsApi } from '../../services/api';
+import api, { usersApi, workGroupsApi } from '../../services/api';
 import { useAuthStore } from '../../stores/authStore';
 
 const { Title, Text } = Typography;
@@ -21,18 +22,47 @@ const ROLES = [
   { value: 'PSE', label: 'PSE', color: 'cyan' },
 ];
 
+interface User {
+  id: number;
+  full_name: string;
+  email: string;
+  employee_code?: string;
+  phone?: string;
+  role: string;
+  work_group_id?: number | null;
+  is_active: boolean;
+}
+
+interface WorkGroup {
+  id: number;
+  name: string;
+  code: string;
+  color: string;
+  description?: string;
+  coordinator_id?: number | null;
+  coordinator_name?: string;
+  members_count?: number;
+  members?: User[];
+}
+
 const AdminPage = () => {
-  const [users, setUsers] = useState<any[]>([]);
-  const [groups, setGroups] = useState<any[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [presenceList, setPresenceList] = useState<any[]>([]);
+  const [presenceLoading, setPresenceLoading] = useState(false);
+  const [workGroups, setWorkGroups] = useState<WorkGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [userModalOpen, setUserModalOpen] = useState(false);
   const [groupModalOpen, setGroupModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<any>(null);
   const [editingGroup, setEditingGroup] = useState<any>(null);
-  const [selectedGroup, setSelectedGroup] = useState<any>(null);
+  const [selectedGroup, setSelectedGroup] = useState<WorkGroup | null>(null);
   const [groupDetailModal, setGroupDetailModal] = useState(false);
   const [filterRole, setFilterRole] = useState<string | undefined>(undefined);
   const [filterGroup, setFilterGroup] = useState<number | undefined>(undefined);
+  const [resetPasswordModal, setResetPasswordModal] = useState(false);
+  const [tempPassword, setTempPassword] = useState('');
+  const [resetingUser, setResetingUser] = useState<User | null>(null);
+  const [resetLoading, setResetLoading] = useState(false);
   const [userForm] = Form.useForm();
   const [groupForm] = Form.useForm();
   const currentUser = useAuthStore((state) => state.user);
@@ -50,14 +80,14 @@ const AdminPage = () => {
       ]);
 
       if (results[0].status === 'fulfilled') {
-        setUsers(results[0].value);
+        setUsers(Array.isArray(results[0].value) ? results[0].value : []);
       } else {
         console.error('Error cargando usuarios:', results[0].reason);
         message.error('Error al cargar usuarios');
       }
 
       if (results[1].status === 'fulfilled') {
-        setGroups(results[1].value);
+        setWorkGroups(Array.isArray(results[1].value) ? results[1].value : []);
       } else {
         console.error('Error cargando grupos:', results[1].reason);
         message.error('Error al cargar grupos de trabajo');
@@ -66,6 +96,18 @@ const AdminPage = () => {
       console.error('Error:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadPresence = async () => {
+    setPresenceLoading(true);
+    try {
+      const data = await usersApi.getPresenceList();
+      setPresenceList(data);
+    } catch (error) {
+      console.error('Error loading presence:', error);
+    } finally {
+      setPresenceLoading(false);
     }
   };
 
@@ -110,6 +152,20 @@ const AdminPage = () => {
       loadData();
     } catch (error: any) {
       message.error(error.response?.data?.detail || 'Error');
+    }
+  };
+
+  const handleResetPassword = async (user: User) => {
+    setResetingUser(user);
+    setResetLoading(true);
+    try {
+      const response = await api.post(`/users/${user.id}/reset-password`);
+      setTempPassword(response.data.temp_password);
+      setResetPasswordModal(true);
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || 'Error al resetear contraseña');
+    } finally {
+      setResetLoading(false);
     }
   };
 
@@ -173,32 +229,22 @@ const AdminPage = () => {
     return ROLES.find(r => r.value === role)?.color || 'default';
   };
 
-  const filteredUsers = users.filter(u => {
-    if (filterRole && u.role !== filterRole) return false;
-    if (filterGroup && u.work_group_id !== filterGroup) return false;
-    return true;
-  });
-
   const userColumns = [
     {
       title: 'Usuario',
-      key: 'user',
-      render: (_: any, record: any) => (
-        <Space>
-          <Avatar icon={<UserOutlined />} style={{ backgroundColor: getRoleColor(record.role) === 'red' ? '#ff4d4f' : '#1890ff' }} size="small" />
-          <div>
-            <Text strong>{record.full_name}</Text>
-            <br />
-            <Text type="secondary" style={{ fontSize: 12 }}>{record.email}</Text>
+      key: 'usuario',
+      width: 180,
+      ellipsis: true,
+      render: (_: any, record: User) => (
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {record.full_name}
           </div>
-        </Space>
+          <div style={{ fontSize: 12, color: '#888', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {record.email}
+          </div>
+        </div>
       ),
-    },
-    {
-      title: 'Código',
-      dataIndex: 'employee_code',
-      key: 'code',
-      width: 100,
     },
     {
       title: 'Rol',
@@ -211,8 +257,8 @@ const AdminPage = () => {
       title: 'Grupo',
       key: 'group',
       width: 140,
-      render: (_: any, record: any) => {
-        const group = groups.find(g => g.id === record.work_group_id);
+      render: (_: any, record: User) => {
+        const group = workGroups.find(g => g.id === record.work_group_id);
         return group ? (
           <Tag color={group.color}>{group.name}</Tag>
         ) : (
@@ -239,6 +285,16 @@ const AdminPage = () => {
             <Button size="small" icon={<EditOutlined />} onClick={() => openEditUser(record)} />
           </Tooltip>
           {record.id !== currentUser?.id && (
+            <Tooltip title="Resetear contraseña">
+              <Button
+                size="small"
+                icon={<KeyOutlined />}
+                onClick={() => handleResetPassword(record)}
+                loading={resetLoading && resetingUser?.id === record.id}
+              />
+            </Tooltip>
+          )}
+          {record.id !== currentUser?.id && (
             <Popconfirm title="¿Desactivar este usuario?" onConfirm={() => handleDeleteUser(record.id)}>
               <Button size="small" danger icon={<DeleteOutlined />} />
             </Popconfirm>
@@ -251,9 +307,9 @@ const AdminPage = () => {
   return (
     <div>
       {/* Header */}
-      <div style={{ marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
         <div>
-          <Title level={3} style={{ margin: 0 }}>
+          <Title level={3} style={{ margin: 0, whiteSpace: 'nowrap', flexShrink: 0 }}>
             <SettingOutlined style={{ marginRight: 8 }} />
             Administración
           </Title>
@@ -263,6 +319,7 @@ const AdminPage = () => {
 
       <Tabs
         defaultActiveKey="users"
+        onChange={(key) => { if (key === 'presence') loadPresence(); }}
         items={[
           {
             key: 'users',
@@ -274,28 +331,27 @@ const AdminPage = () => {
             ),
             children: (
               <Card>
-                <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between' }}>
-                  <Space>
-                    <Select
-                      placeholder="Filtrar por rol"
-                      value={filterRole}
-                      onChange={setFilterRole}
-                      allowClear
-                      style={{ width: 160 }}
-                      options={ROLES}
-                    />
-                    <Select
-                      placeholder="Filtrar por grupo"
-                      value={filterGroup}
-                      onChange={setFilterGroup}
-                      allowClear
-                      style={{ width: 160 }}
-                      options={groups.map(g => ({ value: g.id, label: g.name }))}
-                    />
-                  </Space>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+                  <Select
+                    placeholder="Filtrar por rol"
+                    value={filterRole}
+                    onChange={setFilterRole}
+                    allowClear
+                    style={{ minWidth: 150, flex: 1 }}
+                    options={ROLES}
+                  />
+                  <Select
+                    placeholder="Filtrar por grupo"
+                    value={filterGroup}
+                    onChange={setFilterGroup}
+                    allowClear
+                    style={{ minWidth: 150, flex: 1 }}
+                    options={workGroups.map(g => ({ value: g.id, label: g.name }))}
+                  />
                   <Button
                     type="primary"
                     icon={<PlusOutlined />}
+                    style={{ flexShrink: 0 }}
                     onClick={() => {
                       setEditingUser(null);
                       userForm.resetFields();
@@ -306,10 +362,11 @@ const AdminPage = () => {
                   </Button>
                 </div>
                 <Table
-                  dataSource={filteredUsers}
+                  dataSource={users ?? []}
                   columns={userColumns}
                   rowKey="id"
                   loading={loading}
+                  scroll={{ x: 600 }}
                   pagination={{ pageSize: 15 }}
                   size="small"
                 />
@@ -321,7 +378,7 @@ const AdminPage = () => {
             label: (
               <span>
                 <TeamOutlined />
-                Grupos de Trabajo <Badge count={groups.length} style={{ marginLeft: 8, backgroundColor: '#52c41a' }} />
+                Grupos de Trabajo <Badge count={workGroups.length} style={{ marginLeft: 8, backgroundColor: '#52c41a' }} />
               </span>
             ),
             children: (
@@ -341,8 +398,8 @@ const AdminPage = () => {
                 </div>
                 <List
                   grid={{ gutter: 16, xs: 1, sm: 2, md: 3, lg: 3 }}
-                  dataSource={groups}
-                  renderItem={(group: any) => (
+                  dataSource={workGroups}
+                  renderItem={(group: WorkGroup) => (
                     <List.Item>
                       <Card
                         hoverable
@@ -382,6 +439,71 @@ const AdminPage = () => {
                       </Card>
                     </List.Item>
                   )}
+                />
+              </Card>
+            ),
+          },
+          {
+            key: 'presence',
+            label: (
+              <span>
+                <EyeOutlined />
+                Presencia <Badge count={presenceList.filter((u: any) => u.is_online).length} style={{ marginLeft: 8, backgroundColor: '#10b981' }} />
+              </span>
+            ),
+            children: (
+              <Card>
+                <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text strong>Usuarios activos en la aplicacion</Text>
+                  <Button size="small" onClick={loadPresence} loading={presenceLoading}>Actualizar</Button>
+                </div>
+                <Table
+                  dataSource={presenceList}
+                  rowKey="id"
+                  loading={presenceLoading}
+                  size="small"
+                  pagination={false}
+                  columns={[
+                    {
+                      title: 'Usuario',
+                      dataIndex: 'full_name',
+                      key: 'full_name',
+                      render: (text: string, record: any) => (
+                        <Space>
+                          <Badge status={record.is_online ? 'success' : 'default'} />
+                          <span>{text}</span>
+                        </Space>
+                      ),
+                    },
+                    { title: 'Email', dataIndex: 'email', key: 'email' },
+                    {
+                      title: 'Rol',
+                      dataIndex: 'role',
+                      key: 'role',
+                      render: (role: string) => <Tag>{role}</Tag>,
+                    },
+                    {
+                      title: 'Estado',
+                      key: 'status',
+                      render: (_: any, record: any) => (
+                        <Tag color={record.is_online ? 'success' : 'default'}>
+                          {record.is_online ? 'En linea' : 'Desconectado'}
+                        </Tag>
+                      ),
+                    },
+                    {
+                      title: 'Modulo actual',
+                      dataIndex: 'current_route',
+                      key: 'current_route',
+                      render: (route: string) => route ? <Tag color="blue">{route}</Tag> : '-',
+                    },
+                    {
+                      title: 'Ultima actividad',
+                      dataIndex: 'last_seen_at',
+                      key: 'last_seen_at',
+                      render: (date: string) => date ? new Date(date).toLocaleString('es-CO') : 'Nunca',
+                    },
+                  ]}
                 />
               </Card>
             ),
@@ -437,7 +559,7 @@ const AdminPage = () => {
                 <Select
                   placeholder="Seleccionar grupo"
                   allowClear
-                  options={groups.map(g => ({ value: g.id, label: g.name }))}
+                  options={workGroups.map(g => ({ value: g.id, label: g.name }))}
                 />
               </Form.Item>
             </Col>
@@ -568,6 +690,62 @@ const AdminPage = () => {
             />
           </>
         )}
+      </Modal>
+      {/* Modal Contraseña Temporal */}
+      <Modal
+        title={
+          <Space>
+            <KeyOutlined style={{ color: '#faad14' }} />
+            Contraseña temporal generada
+          </Space>
+        }
+        open={resetPasswordModal}
+        onCancel={() => { setResetPasswordModal(false); setTempPassword(''); setResetingUser(null); }}
+        footer={[
+          <Button key="close" type="primary" onClick={() => { setResetPasswordModal(false); setTempPassword(''); setResetingUser(null); }}>
+            Listo
+          </Button>
+        ]}
+        width={420}
+      >
+        <div style={{ textAlign: 'center', padding: '16px 0' }}>
+          <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+            Usuario: <Text strong>{resetingUser?.full_name}</Text>
+          </Text>
+          <Text type="secondary" style={{ display: 'block', marginBottom: 16, fontSize: 12 }}>
+            Entrega esta contraseña temporal al usuario por WhatsApp o teléfono.
+            Deberá cambiarla al ingresar.
+          </Text>
+          <div style={{
+            background: '#f5f5f5',
+            border: '1px dashed #d9d9d9',
+            borderRadius: 8,
+            padding: '16px 24px',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 12,
+            marginBottom: 16
+          }}>
+            <Text style={{ fontSize: 22, fontFamily: 'monospace', letterSpacing: 3, fontWeight: 600 }}>
+              {tempPassword}
+            </Text>
+            <Tooltip title="Copiar">
+              <Button
+                type="text"
+                icon={<CopyOutlined />}
+                onClick={() => {
+                  navigator.clipboard.writeText(tempPassword);
+                  message.success('Copiado al portapapeles');
+                }}
+              />
+            </Tooltip>
+          </div>
+          <div>
+            <Text type="warning" style={{ fontSize: 12 }}>
+              ⚠️ Esta contraseña solo se muestra una vez.
+            </Text>
+          </div>
+        </div>
       </Modal>
     </div>
   );

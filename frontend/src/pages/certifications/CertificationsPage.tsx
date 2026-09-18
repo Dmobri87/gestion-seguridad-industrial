@@ -11,8 +11,8 @@ interface CertificationType {
   id: number;
   name: string;
   description: string;
-  validity_months: number;
-  is_required: boolean;
+  default_validity_days: number;
+  is_mandatory: boolean;
 }
 
 interface UserCertification {
@@ -101,7 +101,7 @@ const CertificationsPage = () => {
   const handleCreate = async (values: any) => {
     try {
       const certType = certTypes.find(t => t.id === values.certification_type_id);
-      const expirationDate = dayjs(values.issue_date).add(certType?.validity_months || 12, 'month');
+      const expirationDate = dayjs(values.issue_date).add(Math.round((certType?.default_validity_days || 365) / 30), 'month');
 
       await certificationsApi.create({
         ...values,
@@ -232,6 +232,7 @@ const CertificationsPage = () => {
                 dataSource={expiringCerts}
                 columns={allCertsColumns}
                 rowKey="id"
+                scroll={{ x: 600 }}
                 pagination={false}
               />
             </>
@@ -271,6 +272,7 @@ const CertificationsPage = () => {
               columns={userCertsColumns}
               rowKey="id"
               loading={loading}
+              scroll={{ x: 600 }}
               pagination={false}
             />
           ) : (
@@ -292,10 +294,11 @@ const CertificationsPage = () => {
           columns={[
             { title: 'Nombre', dataIndex: 'name', key: 'name' },
             { title: 'Descripción', dataIndex: 'description', key: 'desc' },
-            { title: 'Vigencia', dataIndex: 'validity_months', key: 'validity', render: (v: number) => `${v} meses` },
-            { title: 'Obligatoria', dataIndex: 'is_required', key: 'required', render: (v: boolean) => v ? <Tag color="red">Sí</Tag> : <Tag>No</Tag> },
+            { title: 'Vigencia', dataIndex: 'default_validity_days', key: 'validity', render: (v: number) => v ? `${Math.round(v / 30)} meses` : 'N/A' },
+            { title: 'Obligatoria', dataIndex: 'is_mandatory', key: 'required', render: (v: boolean) => v ? <Tag color="red">Sí</Tag> : <Tag>No</Tag> },
           ]}
           rowKey="id"
+          scroll={{ x: 600 }}
           pagination={false}
         />
       ),
@@ -305,8 +308,8 @@ const CertificationsPage = () => {
   return (
     <div>
       <Card>
-        <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between' }}>
-          <Title level={4} style={{ margin: 0 }}>Gestión de Certificaciones</Title>
+        <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+          <Title level={4} style={{ margin: 0, whiteSpace: 'nowrap', flexShrink: 0 }}>Gestión de Certificaciones</Title>
           {canManage && (
             <Button type="primary" icon={<PlusOutlined />} onClick={() => setModalOpen(true)}>
               Registrar Certificación
@@ -340,7 +343,7 @@ const CertificationsPage = () => {
           <Form.Item name="certification_type_id" label="Tipo de Certificación" rules={[{ required: true }]}>
             <Select
               placeholder="Selecciona tipo"
-              options={certTypes.map((t) => ({ value: t.id, label: `${t.name} (${t.validity_months} meses)` }))}
+              options={certTypes.map((t) => ({ value: t.id, label: `${t.name} (${Math.round((t.default_validity_days || 365) / 30)} meses)` }))}
             />
           </Form.Item>
           <Form.Item name="certificate_number" label="N° Certificado" rules={[{ required: true }]}>

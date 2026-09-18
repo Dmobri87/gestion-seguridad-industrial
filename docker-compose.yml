@@ -1,52 +1,158 @@
+# =============================================================================
+# Docker Compose - Production
+# Sistema de Gestion de Seguridad Industrial y Salud Ocupacional
+# =============================================================================
+#
+# Usage:
+#   1. Copy .env.production.template to .env and fill in all values
+#   2. Run: docker-compose up -d --build
+#   3. Check logs: docker-compose logs -f
+#
+# =============================================================================
+
 services:
-  # ========================================
-  # BASE DE DATOS POSTGRESQL
-  # ========================================
-  postgres:
+  # ===========================================================================
+  # PostgreSQL Database
+  # ===========================================================================
+  db:
     image: postgres:15-alpine
-    container_name: gestion-postgres
+    container_name: seguridad_db
     restart: always
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    networks:
+      - app-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
 
-  # ========================================
-  # BACKEND - FASTAPI
-  # ========================================
+  # ===========================================================================
+  # Redis - Cache & Rate Limiting (con autenticación)
+  # ===========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: seguridad_redis
+    restart: always
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 128mb
+      --maxmemory-policy allkeys-lru
+      --requirepass ${REDIS_PASSWORD:-redis_seguro_2024}
+    volumes:
+      - redis_data:/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redis_seguro_2024}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+
+  # ===========================================================================
+  # Backend - FastAPI Application
+  # ===========================================================================
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: gestion-backend
+    container_name: seguridad_backend
     restart: always
+    env_file:
+      - .env
     environment:
-      DATABASE_URL: ${DATABASE_URL}
-      SECRET_KEY: ${SECRET_KEY}
-      ALGORITHM: ${ALGORITHM}
-      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES}
-      DEBUG: ${DEBUG}
-    ports:
-      - "8080:80"
-    volumes:
-      - ./backend/app:/code/app
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_seguro_2024}@redis:6379/0
     depends_on:
-      postgres:
+      db:
         condition: service_healthy
-    command: uvicorn app.main:app --host 0.0.0.0 --port 80 --reload
+      redis:
+        condition: service_healthy
+    volumes:
+      - upload_data:/app/uploads
+      - backend_logs:/app/logs
+    ports:
+      - "8000:8000"
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
 
-# ========================================
-# VOLÚMENES PERSISTENTES
-# ========================================
+  # ===========================================================================
+  # Frontend - React + Nginx (serves SPA and proxies API)
+  # ===========================================================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: seguridad_frontend
+    restart: always
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "80:80"
+    networks:
+      - app-network
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  app-network:
+    driver: bridge
+
+# =============================================================================
+# Volumes
+# =============================================================================
 volumes:
   postgres_data:
+    driver: local
+  upload_data:
+    driver: local
+  redis_data:
+    driver: local
+  backend_logs:
     driver: local

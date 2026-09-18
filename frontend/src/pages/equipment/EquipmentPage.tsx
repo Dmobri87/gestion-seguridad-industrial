@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import {
   Card, Table, Button, Select, Space, Tag, Modal, Form, Input, message,
-  Typography, Row, Col, Statistic, Tabs, Descriptions, Switch, Tooltip, Divider, Progress,
+  Typography, Row, Col, Statistic, Tabs, Descriptions, Switch, Tooltip, Divider, Progress, Grid,
   Timeline, Alert, InputNumber
 } from 'antd';
 import {
@@ -20,6 +20,7 @@ dayjs.extend(relativeTime);
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
+const { useBreakpoint } = Grid;
 
 interface Equipment {
   id: number;
@@ -90,6 +91,7 @@ interface FleetData {
 }
 
 const EquipmentPage = () => {
+  const screens = useBreakpoint();
   const [loading, setLoading] = useState(true);
   const [equipment, setEquipment] = useState<Equipment[]>([]);
   const [categories, setCategories] = useState<EquipmentCategory[]>([]);
@@ -278,12 +280,20 @@ const EquipmentPage = () => {
   };
 
   const getAvailabilityIndicator = (eq: Equipment) => {
+    const mobile = !screens.md;
     if (eq.status !== 'Operativo') return <Tag color="default">No disponible</Tag>;
     const day = eq.is_available_day;
     const night = eq.is_available_night;
-    if (day && night) return <Space size={4}><Tag color="green"><SunOutlined /> Día</Tag><Tag color="blue"><MoonOutlined /> Noche</Tag></Space>;
-    if (day) return <Tag color="green"><SunOutlined /> Solo Día</Tag>;
-    if (night) return <Tag color="blue"><MoonOutlined /> Solo Noche</Tag>;
+    if (day && night) {
+      return (
+        <Space size={4}>
+          <Tag color="green"><SunOutlined />{!mobile && ' Día'}</Tag>
+          <Tag color="blue"><MoonOutlined />{!mobile && ' Noche'}</Tag>
+        </Space>
+      );
+    }
+    if (day) return <Tag color="green"><SunOutlined />{!mobile && ' Solo Día'}</Tag>;
+    if (night) return <Tag color="blue"><MoonOutlined />{!mobile && ' Solo Noche'}</Tag>;
     return <Tag color="red">Sin turno</Tag>;
   };
 
@@ -293,12 +303,12 @@ const EquipmentPage = () => {
 
   const columns = [
     {
-      title: 'N°', key: 'rowNumber', width: 60, fixed: 'left' as const, align: 'center' as const,
+      title: 'N°', key: 'rowNumber', width: 50, fixed: 'left' as const, align: 'center' as const,
       render: (_: any, __: Equipment, index: number) => <Text type="secondary">{index + 1}</Text>,
     },
     { title: 'Código', dataIndex: 'code', key: 'code', width: 100, render: (code: string) => <Text strong>{code}</Text> },
     {
-      title: 'Nombre', dataIndex: 'name', key: 'name', width: 200, ellipsis: true,
+      title: 'Nombre', dataIndex: 'name', key: 'name', width: 140, ellipsis: true,
       render: (name: string, record: Equipment) => (
         <div>
           <div>{name}</div>
@@ -310,15 +320,15 @@ const EquipmentPage = () => {
         </div>
       ),
     },
-    { title: 'Categoría', dataIndex: 'category_name', key: 'category', width: 150, render: (val: string | null) => val || '-' },
+    { title: 'Categoría', dataIndex: 'category_name', key: 'category', width: 140, render: (val: string | null) => val || '-' },
     {
-      title: 'Ubicación', dataIndex: 'location', key: 'location', width: 150, ellipsis: true,
+      title: 'Ubicación', dataIndex: 'location', key: 'location', width: 130, ellipsis: true,
       render: (loc: string | null) => loc ? <span><EnvironmentOutlined style={{ marginRight: 4 }} />{loc}</span> : '-',
     },
-    { title: 'Estado', dataIndex: 'status', key: 'status', width: 140, render: (status: string) => getStatusTag(status) },
-    { title: 'Disponibilidad', key: 'availability', width: 180, render: (_: any, record: Equipment) => getAvailabilityIndicator(record) },
+    { title: 'Estado', dataIndex: 'status', key: 'status', width: 110, render: (status: string) => getStatusTag(status) },
+    { title: 'Disponibilidad', key: 'availability', width: 100, render: (_: any, record: Equipment) => getAvailabilityIndicator(record) },
     {
-      title: 'Próx. Mantto.', dataIndex: 'next_maintenance_date', key: 'maintenance', width: 120,
+      title: 'Próx. Mantto.', dataIndex: 'next_maintenance_date', key: 'maintenance', width: 110,
       render: (d: string | null) => {
         if (!d) return '-';
         const du = dayjs(d).diff(dayjs(), 'day');
@@ -326,7 +336,7 @@ const EquipmentPage = () => {
       },
     },
     {
-      title: 'Acciones', key: 'actions', width: 150,
+      title: 'Acciones', key: 'actions', width: 100,
       render: (_: any, record: Equipment) => (
         <Space size="small">
           <Button type="link" size="small" onClick={() => setDetailModal(record)}>Ver</Button>
@@ -375,8 +385,8 @@ const EquipmentPage = () => {
       </Row>
 
       <Card>
-        <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Title level={4} style={{ margin: 0 }}><ToolOutlined style={{ marginRight: 8 }} />Inventario de Equipos</Title>
+        <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+          <Title level={4} style={{ margin: 0, whiteSpace: 'nowrap', flexShrink: 0 }}><ToolOutlined style={{ marginRight: 8 }} />Inventario de Equipos</Title>
           <Space>
             <Select value={selectedCategory} onChange={setSelectedCategory} style={{ width: 200 }}
               placeholder="Todas las categorías" allowClear
@@ -387,23 +397,23 @@ const EquipmentPage = () => {
           </Space>
         </div>
 
-        <Tabs defaultActiveKey="all" items={[
+        <Tabs defaultActiveKey="all" size="small" items={[
           {
             key: 'all', label: `Todos (${totalEquipment})`,
             children: <Table dataSource={equipment} columns={columns} rowKey="id" loading={loading}
-              scroll={{ x: 1200 }}
+              scroll={{ x: 'max-content' }}
               pagination={{ defaultPageSize: 15, showSizeChanger: true, pageSizeOptions: ['15', '20', '50', '100'] }} size="small" />,
           },
           {
             key: 'operative', label: <span style={{ color: '#52c41a' }}>Operativos ({operativeCount})</span>,
             children: <Table dataSource={equipment.filter(e => e.status === 'Operativo')} columns={columns} rowKey="id"
-              loading={loading} scroll={{ x: 1200 }}
+              loading={loading} scroll={{ x: 'max-content' }}
               pagination={{ defaultPageSize: 15, showSizeChanger: true, pageSizeOptions: ['15', '20', '50', '100'] }} size="small" />,
           },
           {
             key: 'out', label: <span style={{ color: outOfServiceCount > 0 ? '#ff4d4f' : undefined }}>Fuera de Servicio ({outOfServiceCount})</span>,
             children: <Table dataSource={equipment.filter(e => e.status !== 'Operativo')} columns={columns} rowKey="id"
-              loading={loading} scroll={{ x: 1200 }}
+              loading={loading} scroll={{ x: 'max-content' }}
               pagination={{ defaultPageSize: 15, showSizeChanger: true, pageSizeOptions: ['15', '20', '50', '100'] }} size="small" />,
           },
           {
@@ -424,7 +434,7 @@ const EquipmentPage = () => {
                     <Progress percent={fleet.total > 0 ? Math.round((fleet.available_night / fleet.total) * 100) : 0} size="small" strokeColor="#1890ff" /></Card></Col>
                 </Row>
                 <Title level={5} style={{ marginBottom: 12 }}>Disponibilidad por Categoría</Title>
-                <Table dataSource={fleet.by_category} rowKey="category_id" pagination={false} size="small" style={{ marginBottom: 24 }}
+                <Table dataSource={fleet.by_category} rowKey="category_id" pagination={false} size="small" scroll={{ x: 600 }} style={{ marginBottom: 24 }}
                   columns={[
                     { title: 'Categoría', dataIndex: 'category_name', key: 'cat' },
                     { title: 'Total', dataIndex: 'total', key: 'total', width: 80, align: 'center' as const },
@@ -437,7 +447,7 @@ const EquipmentPage = () => {
                     { title: 'Fuera Serv.', dataIndex: 'out_of_service', key: 'oos', width: 100, align: 'center' as const, render: (v: number) => v > 0 ? <Tag color="red">{v}</Tag> : <span>0</span> },
                   ]} />
                 <Title level={5} style={{ marginBottom: 12 }}>Disponibilidad por Ubicación (CAE)</Title>
-                <Table dataSource={fleet.by_location} rowKey="location" pagination={false} size="small"
+                <Table dataSource={fleet.by_location} rowKey="location" pagination={false} size="small" scroll={{ x: 600 }}
                   columns={[
                     { title: 'Ubicación / CAE', dataIndex: 'location', key: 'loc', render: (v: string) => <span><EnvironmentOutlined style={{ marginRight: 4 }} />{v}</span> },
                     { title: 'Total Equipos', dataIndex: 'total', key: 'total', width: 120, align: 'center' as const },

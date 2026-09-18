@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, ConfigDict, field_validator
+﻿from pydantic import BaseModel, EmailStr, ConfigDict, field_validator
 from datetime import datetime
 from typing import Optional, List
 from enum import Enum
@@ -133,6 +133,9 @@ class UserResponse(UserBase):
     two_factor_enabled: bool
     created_at: datetime
     last_login: Optional[datetime] = None
+    is_online: bool = False
+    last_seen_at: Optional[datetime] = None
+    current_route: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -194,15 +197,15 @@ class PasswordReset(BaseModel):
 # ==========================================
 
 class OTPVerifyRequest(BaseModel):
-    """Schema para verificación de código OTP."""
+    """Schema para verificacion de codigo OTP."""
     email: EmailStr
     otp_code: str
 
     @field_validator('otp_code')
     @classmethod
     def validate_otp_code(cls, v):
-        if not v or len(v) != 6 or not v.isdigit():
-            raise ValueError('El código OTP debe ser de 6 dígitos')
+        if not v or len(v) != 8 or not v.isdigit():
+            raise ValueError('El codigo OTP debe ser de 8 digitos')
         return v
 
 
@@ -211,3 +214,18 @@ class LoginOTPResponse(BaseModel):
     requires_2fa: bool = True
     message: str
     dev_otp: Optional[str] = None
+
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
+
+
+class RefreshTokenResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    expires_in: int
+
+
+class ResendOTPRequest(BaseModel):
+    email: EmailStr

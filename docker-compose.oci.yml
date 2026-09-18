@@ -1,0 +1,9 @@
+services:
+  # En OCI, el backend no debe exponerse públicamente.
+  backend:
+    ports: []
+
+  # Frontend (Nginx) expuesto al público.
+  frontend:
+    ports:
+      - "80:80"

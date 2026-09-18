@@ -35,11 +35,12 @@ const OTP_EXPIRATION_SECONDS = 5 * 60;
 const LoginPage = () => {
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState<'credentials' | 'otp'>('credentials');
-  const [otpValues, setOtpValues] = useState<string[]>(['', '', '', '', '', '']);
+  const [otpValues, setOtpValues] = useState<string[]>(['', '', '', '', '', '', '', '']);
   const [countdown, setCountdown] = useState(OTP_EXPIRATION_SECONDS);
+  const [resendCooldown, setResendCooldown] = useState(60);
+  const [attemptsLeft, setAttemptsLeft] = useState(5);
   const [resendLoading, setResendLoading] = useState(false);
   const [loginEmail, setLoginEmail] = useState('');
-  const [loginPassword, setLoginPassword] = useState('');
 
   const navigate = useNavigate();
   const setAuth = useAuthStore((state) => state.setAuth);
@@ -54,6 +55,8 @@ const LoginPage = () => {
   useEffect(() => {
     if (step === 'otp') {
       setCountdown(OTP_EXPIRATION_SECONDS);
+      setResendCooldown(60);
+      setAttemptsLeft(5);
       countdownRef.current = setInterval(() => {
         setCountdown((prev) => {
           if (prev <= 1) {
@@ -68,6 +71,17 @@ const LoginPage = () => {
     return () => {
       if (countdownRef.current) clearInterval(countdownRef.current);
     };
+  }, [step]);
+
+  useEffect(() => {
+    if (step !== 'otp') return;
+    const timer = setInterval(() => {
+      setResendCooldown((prev) => {
+        if (prev <= 1) return 0;
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
   }, [step]);
 
   // Format countdown as MM:SS
@@ -90,18 +104,18 @@ const LoginPage = () => {
   const onFinish = async (values: LoginForm) => {
     setLoading(true);
     setLoginEmail(values.email);
-    setLoginPassword(values.password);
     try {
       const response = await authApi.login(values.email, values.password);
 
       if (response.requires_2fa) {
         setPending2FA(values.email, response.dev_otp || null);
         setStep('otp');
-        setOtpValues(['', '', '', '', '', '']);
+        setOtpValues(['', '', '', '', '', '', '', '']);
+        setAttemptsLeft(5);
         message.info('Código de verificación enviado a su email');
       } else if (response.access_token) {
         // Fallback: direct token (should not happen with mandatory 2FA)
-        setAuth(response.user, response.access_token);
+        setAuth(response.user, response.access_token, response.refresh_token || null);
         message.success(`Bienvenido, ${response.user.full_name}`);
         navigate('/dashboard');
       }
@@ -113,22 +127,30 @@ const LoginPage = () => {
     }
   };
 
-  // Step 2: Verify OTP
+  // Step 2: Verify OTP (8 digits)
   const handleVerifyOtp = useCallback(async (otpCode: string) => {
-    if (otpCode.length !== 6) return;
+    if (otpCode.length !== 8) return;
 
     setLoading(true);
     try {
       const response = await authApi.verifyOtp(loginEmail, otpCode);
-      setAuth(response.user, response.access_token);
+      setAuth(response.user, response.access_token, response.refresh_token || null);
       clear2FA();
       message.success(`Bienvenido, ${response.user.full_name}`);
       navigate('/dashboard');
     } catch (error: any) {
-      const errorMessage = error.response?.data?.detail || 'Error al verificar el código';
+      const errorDetail = error.response?.data?.detail;
+      const attempts = errorDetail?.attempts_left;
+      if (typeof attempts === 'number') {
+        setAttemptsLeft(attempts);
+      }
+      const errorMessage =
+        typeof errorDetail === 'string'
+          ? errorDetail
+          : errorDetail?.message || 'Error al verificar el código';
       message.error(errorMessage);
       // Clear OTP inputs on error
-      setOtpValues(['', '', '', '', '', '']);
+      setOtpValues(['', '', '', '', '', '', '', '']);
       setTimeout(() => {
         otpInputRefs.current[0]?.focus();
       }, 100);
@@ -145,14 +167,14 @@ const LoginPage = () => {
     newValues[index] = digit;
     setOtpValues(newValues);
 
-    if (digit && index < 5) {
+    if (digit && index < 7) {
       // Move to next input
       otpInputRefs.current[index + 1]?.focus();
     }
 
-    // Auto-submit when all 6 digits are entered
+    // Auto-submit when all 8 digits are entered
     const fullCode = newValues.join('');
-    if (fullCode.length === 6 && newValues.every((v) => v !== '')) {
+    if (fullCode.length === 8 && newValues.every((v) => v !== '')) {
       handleVerifyOtp(fullCode);
     }
   };
@@ -160,20 +182,20 @@ const LoginPage = () => {
   // Handle paste in OTP inputs
   const handleOtpPaste = (e: React.ClipboardEvent) => {
     e.preventDefault();
-    const pastedData = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+    const pastedData = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 8);
     if (pastedData.length > 0) {
       const newValues = [...otpValues];
-      for (let i = 0; i < 6; i++) {
+      for (let i = 0; i < 8; i++) {
         newValues[i] = pastedData[i] || '';
       }
       setOtpValues(newValues);
 
       // Focus last filled or next empty
-      const focusIndex = Math.min(pastedData.length, 5);
+      const focusIndex = Math.min(pastedData.length, 7);
       otpInputRefs.current[focusIndex]?.focus();
 
-      // Auto-submit if all 6 digits pasted
-      if (pastedData.length === 6) {
+      // Auto-submit if all 8 digits pasted
+      if (pastedData.length === 8) {
         handleVerifyOtp(pastedData);
       }
     }
@@ -191,7 +213,7 @@ const LoginPage = () => {
 
   // Resend OTP
   const handleResendOtp = async () => {
-    if (!loginEmail || !loginPassword) {
+    if (!loginEmail) {
       message.error('Error interno. Vuelva a iniciar sesión.');
       handleBackToLogin();
       return;
@@ -199,27 +221,20 @@ const LoginPage = () => {
 
     setResendLoading(true);
     try {
-      const response = await authApi.login(loginEmail, loginPassword);
-      if (response.requires_2fa) {
-        setPending2FA(loginEmail, response.dev_otp || null);
-        setOtpValues(['', '', '', '', '', '']);
+      const response = await authApi.resendOtp(loginEmail);
+      setPending2FA(loginEmail, response.dev_otp || null);
+      setOtpValues(['', '', '', '', '', '', '', '']);
+      setAttemptsLeft(5);
+      setResendCooldown(60);
+      if (typeof response.expires_in === 'number') {
+        setCountdown(response.expires_in);
+      } else {
         setCountdown(OTP_EXPIRATION_SECONDS);
-        // Restart timer
-        if (countdownRef.current) clearInterval(countdownRef.current);
-        countdownRef.current = setInterval(() => {
-          setCountdown((prev) => {
-            if (prev <= 1) {
-              if (countdownRef.current) clearInterval(countdownRef.current);
-              return 0;
-            }
-            return prev - 1;
-          });
-        }, 1000);
-        message.success('Nuevo código de verificación enviado');
-        setTimeout(() => {
-          otpInputRefs.current[0]?.focus();
-        }, 100);
       }
+      message.success(response.message || 'Nuevo código de verificación enviado');
+      setTimeout(() => {
+        otpInputRefs.current[0]?.focus();
+      }, 100);
     } catch (error: any) {
       const errorMessage = error.response?.data?.detail || 'Error al reenviar el código';
       message.error(errorMessage);
@@ -232,31 +247,43 @@ const LoginPage = () => {
   const handleBackToLogin = () => {
     clear2FA();
     setStep('credentials');
-    setOtpValues(['', '', '', '', '', '']);
-    setLoginPassword('');
+    setOtpValues(['', '', '', '', '', '', '', '']);
+    setAttemptsLeft(5);
+    setResendCooldown(60);
     if (countdownRef.current) clearInterval(countdownRef.current);
   };
 
   // Manual submit OTP button
   const handleManualOtpSubmit = () => {
     const code = otpValues.join('');
-    if (code.length === 6) {
+    if (code.length === 8) {
       handleVerifyOtp(code);
     } else {
-      message.warning('Ingrese los 6 dígitos del código de verificación');
+      message.warning('Ingrese los 8 digitos del codigo de verificacion');
     }
   };
 
   return (
     <div className="login-container">
-      <Card className="login-card" style={{ width: step === 'otp' ? 440 : 400 }}>
+      {/* Decorative orbs */}
+      <div style={{
+        position: 'absolute', width: 400, height: 400, borderRadius: '50%',
+        background: 'radial-gradient(circle, rgba(8,145,178,0.3) 0%, transparent 70%)',
+        top: '-10%', right: '-5%', filter: 'blur(60px)', pointerEvents: 'none',
+      }} />
+      <div style={{
+        position: 'absolute', width: 300, height: 300, borderRadius: '50%',
+        background: 'radial-gradient(circle, rgba(34,211,238,0.2) 0%, transparent 70%)',
+        bottom: '-5%', left: '-5%', filter: 'blur(50px)', pointerEvents: 'none',
+      }} />
+      <Card className="login-card glass-card" style={{ width: step === 'otp' ? 500 : 420, position: 'relative', zIndex: 1 }}>
         {/* ── Step 1: Email + Password ── */}
         {step === 'credentials' && (
           <>
             <div className="login-title">
-              <SafetyOutlined style={{ fontSize: 48, color: '#1890ff', marginBottom: 16 }} />
-              <Title level={3}>Sistema de Gesti&oacute;n</Title>
-              <Text type="secondary">Seguridad Industrial y Salud Ocupacional</Text>
+              <SafetyOutlined style={{ fontSize: 48, color: '#0891b2', marginBottom: 16 }} />
+              <Title level={3}>Gesti&oacute;n GAE</Title>
+              <Text type="secondary">Sistema de Gesti&oacute;n Empresarial</Text>
             </div>
 
             <Form
@@ -281,11 +308,11 @@ const LoginPage = () => {
 
               <Form.Item
                 name="password"
-                rules={[{ required: true, message: 'Ingresa tu contrase\u00f1a' }]}
+                rules={[{ required: true, message: 'Ingresa tu Contraseña' }]}
               >
                 <Input.Password
                   prefix={<LockOutlined />}
-                  placeholder="Contrase\u00f1a"
+                  placeholder="Contraseña"
                 />
               </Form.Item>
 
@@ -302,8 +329,8 @@ const LoginPage = () => {
             </Form>
 
             <div style={{ textAlign: 'center', marginTop: 16 }}>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                Seguridad Industrial y Salud Ocupacional v2.0
+              <Text type="secondary" style={{ fontSize: 12, letterSpacing: '0.5px' }}>
+                Gesti&oacute;n GAE v2.0 — Cerrej&oacute;n
               </Text>
             </div>
           </>
@@ -318,12 +345,12 @@ const LoginPage = () => {
                   width: 72,
                   height: 72,
                   borderRadius: '50%',
-                  background: 'linear-gradient(135deg, #1890ff 0%, #096dd9 100%)',
+                  background: 'linear-gradient(135deg, #1890ff 0%, #0e7490 100%)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   margin: '0 auto 20px',
-                  boxShadow: '0 4px 14px rgba(24, 144, 255, 0.3)',
+                  boxShadow: '0 4px 14px rgba(8, 145, 178, 0.3)',
                 }}
               >
                 <MailOutlined style={{ fontSize: 32, color: '#fff' }} />
@@ -342,7 +369,7 @@ const LoginPage = () => {
 
               <Text
                 strong
-                style={{ fontSize: 14, color: '#1890ff' }}
+                style={{ fontSize: 14, color: '#0891b2' }}
               >
                 {maskEmail(loginEmail)}
               </Text>
@@ -381,10 +408,10 @@ const LoginPage = () => {
                   onKeyDown={(e) => handleOtpKeyDown(index, e)}
                   disabled={loading}
                   style={{
-                    width: 48,
-                    height: 56,
+                    width: 42,
+                    height: 52,
                     textAlign: 'center',
-                    fontSize: 24,
+                    fontSize: 22,
                     fontWeight: 700,
                     fontFamily: "'Courier New', monospace",
                     border: value
@@ -393,20 +420,20 @@ const LoginPage = () => {
                     borderRadius: 10,
                     outline: 'none',
                     transition: 'all 0.2s ease',
-                    background: value ? '#f0f5ff' : '#fff',
+                    background: value ? '#f0fdfa' : '#fff',
                     color: '#1a365d',
                     boxShadow: value
-                      ? '0 0 0 2px rgba(24, 144, 255, 0.15)'
+                      ? '0 0 0 2px rgba(8, 145, 178, 0.15)'
                       : 'none',
                   }}
                   onFocus={(e) => {
                     e.target.style.borderColor = '#1890ff';
-                    e.target.style.boxShadow = '0 0 0 3px rgba(24, 144, 255, 0.2)';
+                    e.target.style.boxShadow = '0 0 0 3px rgba(8, 145, 178, 0.2)';
                   }}
                   onBlur={(e) => {
                     e.target.style.borderColor = value ? '#1890ff' : '#d9d9d9';
                     e.target.style.boxShadow = value
-                      ? '0 0 0 2px rgba(24, 144, 255, 0.15)'
+                      ? '0 0 0 2px rgba(8, 145, 178, 0.15)'
                       : 'none';
                   }}
                 />
@@ -442,6 +469,11 @@ const LoginPage = () => {
                   El c&oacute;digo ha expirado. Solicite uno nuevo.
                 </Text>
               )}
+              <div style={{ marginTop: 8 }}>
+                <Text type={attemptsLeft <= 2 ? 'danger' : 'secondary'}>
+                  {attemptsLeft} intentos restantes
+                </Text>
+              </div>
             </div>
 
             {/* Verify Button */}
@@ -451,7 +483,7 @@ const LoginPage = () => {
               block
               loading={loading}
               onClick={handleManualOtpSubmit}
-              disabled={otpValues.join('').length !== 6 || countdown === 0}
+              disabled={otpValues.join('').length !== 8 || countdown === 0}
               style={{ marginBottom: 16, height: 44 }}
             >
               Verificar
@@ -468,10 +500,10 @@ const LoginPage = () => {
                 icon={<ReloadOutlined />}
                 onClick={handleResendOtp}
                 loading={resendLoading}
-                disabled={loading}
+                disabled={loading || resendCooldown > 0}
                 style={{ padding: 0 }}
               >
-                Reenviar c&oacute;digo
+                {resendCooldown > 0 ? `Reenviar c\u00f3digo en ${resendCooldown}s` : 'Reenviar c\u00f3digo'}
               </Button>
 
               <Button

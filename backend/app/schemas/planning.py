@@ -16,6 +16,7 @@ class ActivityCategoryBase(BaseModel):
     display_order: int = 0
     color: str = "#1890ff"
     icon: Optional[str] = None
+    coordinator_only: bool = False
 
 
 class ActivityCategoryCreate(ActivityCategoryBase):
@@ -27,6 +28,7 @@ class ActivityCategoryResponse(ActivityCategoryBase):
     """Schema de respuesta para categoría."""
     id: int
     is_active: bool
+    coordinator_only: bool = False
     organization_id: Optional[int] = None
     created_at: datetime
 
@@ -42,6 +44,7 @@ class ActivityCategoryUpdate(BaseModel):
     color: Optional[str] = None
     icon: Optional[str] = None
     is_active: Optional[bool] = None
+    coordinator_only: Optional[bool] = None
 
 
 class ActivityCategoryWithCount(ActivityCategoryResponse):
@@ -62,6 +65,7 @@ class ActivityTemplateBase(BaseModel):
     is_critical: bool = False
     default_frequency: int = 1
     display_order: int = 0
+    coordinator_only: bool = False
 
 
 class ActivityTemplateCreate(ActivityTemplateBase):
@@ -81,6 +85,7 @@ class ActivityTemplateUpdate(BaseModel):
     default_frequency: Optional[int] = None
     display_order: Optional[int] = None
     is_active: Optional[bool] = None
+    coordinator_only: Optional[bool] = None
 
 
 class ActivityTemplateResponse(ActivityTemplateBase):
@@ -88,6 +93,7 @@ class ActivityTemplateResponse(ActivityTemplateBase):
     id: int
     category_id: int
     is_active: bool
+    coordinator_only: bool = False
     organization_id: Optional[int] = None
     created_at: datetime
 
@@ -122,7 +128,7 @@ class MonthlyPlanBase(BaseModel):
 class MonthlyPlanCreate(MonthlyPlanBase):
     """Schema para crear plan mensual."""
     user_id: int
-    organization_id: int
+    organization_id: Optional[int] = None
 
 
 class MonthlyPlanUpdate(BaseModel):
@@ -198,6 +204,7 @@ class PlannedActivityBase(BaseModel):
     cycle_2_planned: int = 0
     cycle_3_planned: int = 0
     cycle_4_planned: int = 0
+    requires_evidence: bool = True
     notes: Optional[str] = None
 
 
@@ -212,6 +219,7 @@ class PlannedActivityUpdate(BaseModel):
     cycle_2_planned: Optional[int] = None
     cycle_3_planned: Optional[int] = None
     cycle_4_planned: Optional[int] = None
+    requires_evidence: Optional[bool] = None
     notes: Optional[str] = None
 
 
@@ -241,6 +249,7 @@ class PlannedActivityWithTemplate(PlannedActivityResponse):
     category_code: str
     requires_evidence: bool
     is_critical: bool
+    coordinator_only: bool = False
 
 
 # ==========================================
@@ -271,7 +280,7 @@ class BulkMonthlyPlanCreate(BaseModel):
     user_ids: List[int]
     months: List[MonthYear]
     notes: Optional[str] = None
-    organization_id: int
+    organization_id: Optional[int] = None
     load_activities: bool = False  # Cargar actividades del catálogo automáticamente
 
 

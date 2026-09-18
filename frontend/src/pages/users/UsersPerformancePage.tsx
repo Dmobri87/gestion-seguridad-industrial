@@ -1,15 +1,14 @@
 import { useState, useEffect } from 'react';
 import {
   Card, Table, Select, Space, Tag, Typography, Row, Col, Statistic,
-  Progress, Avatar, Tabs, Badge, Tooltip, Button
+  Progress, Tabs, Badge, Tooltip, Button
 } from 'antd';
 import {
-  UserOutlined, TrophyOutlined, CheckCircleOutlined, ClockCircleOutlined,
-  TeamOutlined, CalendarOutlined, BarChartOutlined, ExportOutlined
+  TrophyOutlined, CheckCircleOutlined, ClockCircleOutlined,
+  TeamOutlined, BarChartOutlined, ExportOutlined
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { usersApi, planningApi, executionsApi } from '../../services/api';
-import { useAuthStore } from '../../stores/authStore';
 
 const { Title, Text } = Typography;
 
@@ -30,11 +29,9 @@ interface TAEPerformance {
 
 const UsersPerformancePage = () => {
   const [loading, setLoading] = useState(true);
-  const [taes, setTaes] = useState<any[]>([]);
-  const [performance, setPerformance] = useState<TAEPerformance[]>([]);
+  const [data, setData] = useState<any[]>([]);
   const [year, setYear] = useState(dayjs().year());
   const [month, setMonth] = useState(dayjs().month() + 1);
-  const user = useAuthStore((state) => state.user);
 
   useEffect(() => {
     loadData();
@@ -45,7 +42,6 @@ const UsersPerformancePage = () => {
     try {
       // Cargar TAEs
       const taesResponse = await usersApi.getTAEs();
-      setTaes(taesResponse);
 
       // Cargar planes del mes
       const plansResponse = await planningApi.getPlans(year, month);
@@ -84,7 +80,7 @@ const UsersPerformancePage = () => {
       performanceData.sort((a, b) => b.compliance_percentage - a.compliance_percentage);
       performanceData.forEach((p, i) => p.rank = i + 1);
 
-      setPerformance(performanceData);
+      setData(performanceData);
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
@@ -115,17 +111,14 @@ const UsersPerformancePage = () => {
       render: (rank: number) => getRankBadge(rank),
     },
     {
-      title: 'TAE',
-      key: 'tae',
-      render: (_: any, record: TAEPerformance) => (
-        <Space>
-          <Avatar icon={<UserOutlined />} style={{ backgroundColor: '#1890ff' }} />
-          <div>
-            <Text strong>{record.full_name}</Text>
-            <br />
-            <Text type="secondary" style={{ fontSize: 12 }}>{record.employee_code}</Text>
-          </div>
-        </Space>
+      title: 'Plan / TAE',
+      key: 'nombre',
+      width: 150,
+      ellipsis: true,
+      render: (_: any, record: any) => (
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
+          {record.user_name || record.full_name || record.name || '—'}
+        </span>
       ),
     },
     {
@@ -148,7 +141,7 @@ const UsersPerformancePage = () => {
     {
       title: 'Cumplimiento',
       key: 'compliance',
-      width: 180,
+      width: 150,
       render: (_: any, record: TAEPerformance) => (
         <div>
           <Progress
@@ -192,19 +185,19 @@ const UsersPerformancePage = () => {
     { value: 10, label: 'Octubre' }, { value: 11, label: 'Noviembre' }, { value: 12, label: 'Diciembre' },
   ];
 
-  const totalTaes = performance.length;
-  const avgCompliance = performance.length > 0
-    ? performance.reduce((sum, p) => sum + p.compliance_percentage, 0) / performance.length
+  const totalTaes = data.length;
+  const avgCompliance = data.length > 0
+    ? data.reduce((sum, p) => sum + p.compliance_percentage, 0) / data.length
     : 0;
-  const above80 = performance.filter(p => p.compliance_percentage >= 80).length;
-  const below50 = performance.filter(p => p.compliance_percentage < 50).length;
+  const above80 = data.filter(p => p.compliance_percentage >= 80).length;
+  const below50 = data.filter(p => p.compliance_percentage < 50).length;
 
   return (
     <div>
       {/* Header */}
-      <div style={{ marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
         <div>
-          <Title level={3} style={{ margin: 0 }}>
+          <Title level={3} style={{ margin: 0, whiteSpace: 'nowrap', flexShrink: 0 }}>
             <TeamOutlined style={{ marginRight: 8 }} />
             Desempeño de TAEs
           </Title>
@@ -282,10 +275,11 @@ const UsersPerformancePage = () => {
             children: (
               <Card>
                 <Table
-                  dataSource={performance}
+                  dataSource={data ?? []}
                   columns={columns}
                   rowKey="id"
                   loading={loading}
+                  scroll={{ x: 800 }}
                   pagination={false}
                   size="middle"
                 />
@@ -304,10 +298,11 @@ const UsersPerformancePage = () => {
             children: (
               <Card>
                 <Table
-                  dataSource={performance.filter(p => p.compliance_percentage < 50)}
+                  dataSource={(data ?? []).filter(p => p.compliance_percentage < 50)}
                   columns={columns}
                   rowKey="id"
                   loading={loading}
+                  scroll={{ x: 800 }}
                   pagination={false}
                   size="middle"
                   locale={{ emptyText: 'No hay TAEs con cumplimiento menor a 50%' }}
@@ -326,10 +321,11 @@ const UsersPerformancePage = () => {
             children: (
               <Card>
                 <Table
-                  dataSource={performance.filter(p => p.compliance_percentage >= 80)}
+                  dataSource={(data ?? []).filter(p => p.compliance_percentage >= 80)}
                   columns={columns}
                   rowKey="id"
                   loading={loading}
+                  scroll={{ x: 800 }}
                   pagination={false}
                   size="middle"
                   locale={{ emptyText: 'No hay TAEs con cumplimiento mayor a 80%' }}

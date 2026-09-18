@@ -2,9 +2,9 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Table, Button, Card, Select, Space, Tag, Progress, Modal,
-  message, Typography, Checkbox, Row, Col, Divider, Alert, Switch
+  message, Typography, Checkbox, Row, Col, Divider, Alert, Switch, Input, Popconfirm
 } from 'antd';
-import { PlusOutlined, EyeOutlined, CheckOutlined, TeamOutlined } from '@ant-design/icons';
+import { PlusOutlined, EyeOutlined, CheckOutlined, TeamOutlined, SearchOutlined, DeleteOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { planningApi, usersApi, workGroupsApi } from '../../services/api';
 import type { MonthlyPlan, User } from '../../types';
@@ -37,12 +37,15 @@ const QUARTERS = [
 const PlanningListPage = () => {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [loadingAudit, setLoadingAudit] = useState(false);
   const [plans, setPlans] = useState<MonthlyPlan[]>([]);
   const [assignableUsers, setAssignableUsers] = useState<User[]>([]);
   const [workGroups, setWorkGroups] = useState<any[]>([]);
+  const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [year, setYear] = useState(dayjs().year());
   const [month, setMonth] = useState<number | undefined>(dayjs().month() + 1);
   const [modalOpen, setModalOpen] = useState(false);
+  const [auditModalOpen, setAuditModalOpen] = useState(false);
 
   // Estado del formulario de creación masiva
   const [selectedYear, setSelectedYear] = useState(dayjs().year());
@@ -50,9 +53,16 @@ const PlanningListPage = () => {
   const [selectedUserIds, setSelectedUserIds] = useState<number[]>([]);
   const [loadActivities, setLoadActivities] = useState(true);
 
+  // Mi Plan (Coordinador)
+  const [myPlanModalOpen, setMyPlanModalOpen] = useState(false);
+  const [myPlanYear, setMyPlanYear] = useState(dayjs().year());
+  const [myPlanMonth, setMyPlanMonth] = useState(dayjs().month() + 1);
+  const [creatingMyPlan, setCreatingMyPlan] = useState(false);
+
   const navigate = useNavigate();
   const user = useAuthStore((state) => state.user);
   const isCoordinator = ['Administrador', 'Coordinador'].includes(user?.role || '');
+  const isAdmin = user?.role === 'Administrador';
 
   useEffect(() => {
     loadPlans();
@@ -61,6 +71,25 @@ const PlanningListPage = () => {
       loadWorkGroups();
     }
   }, [year, month]);
+
+  const handleCreateMyPlan = async () => {
+    setCreatingMyPlan(true);
+    try {
+      const plan = await planningApi.createPlan({
+        user_id: user!.id,
+        year: myPlanYear,
+        month: myPlanMonth,
+        organization_id: user!.organization_id,
+      });
+      message.success('Plan de coordinador creado');
+      setMyPlanModalOpen(false);
+      navigate(`/planificacion/${plan.id}`);
+    } catch (error: any) {
+      message.error(error?.response?.data?.detail || 'Error al crear el plan');
+    } finally {
+      setCreatingMyPlan(false);
+    }
+  };
 
   const loadPlans = async () => {
     setLoading(true);
@@ -137,9 +166,16 @@ const PlanningListPage = () => {
     }
   };
 
+  const [groupRoleFilter, setGroupRoleFilter] = useState<string | null>('TAE');
+
   const handleSelectByGroup = (groupId: number) => {
-    const groupMembers = assignableUsers.filter((u: any) => u.work_group_id === groupId);
+    let groupMembers = assignableUsers.filter((u: any) => u.work_group_id === groupId);
+    // Aplicar filtro de rol si está activo
+    if (groupRoleFilter) {
+      groupMembers = groupMembers.filter((u) => u.role === groupRoleFilter);
+    }
     const memberIds = groupMembers.map((u) => u.id);
+    if (memberIds.length === 0) return;
     const allSelected = memberIds.every((id) => selectedUserIds.includes(id));
     if (allSelected) {
       setSelectedUserIds(selectedUserIds.filter((id) => !memberIds.includes(id)));
@@ -193,6 +229,7 @@ const PlanningListPage = () => {
     setSelectedUserIds([]);
     setLoadActivities(true);
     setSelectedYear(dayjs().year());
+    setGroupRoleFilter('TAE');
   };
 
   const handleApprovePlan = async (planId: number) => {
@@ -202,6 +239,36 @@ const PlanningListPage = () => {
       loadPlans();
     } catch (error: any) {
       message.error(error.response?.data?.detail || 'Error al aprobar el plan');
+    }
+  };
+
+  const handleDeletePlan = async (planId: number) => {
+    try {
+      await planningApi.deletePlan(planId);
+      message.success('Plan eliminado');
+      loadPlans();
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || 'Error al eliminar el plan');
+    }
+  };
+
+  const handleViewPlan = (record: MonthlyPlan) => {
+    if (!record?.id || Number.isNaN(Number(record.id))) {
+      message.error('ID de plan inválido');
+      return;
+    }
+    navigate(`/planificacion/${record.id}`);
+  };
+
+  const loadAuditLogs = async () => {
+    setLoadingAudit(true);
+    try {
+      const response = await planningApi.getDeletionAuditLogs(200);
+      setAuditLogs(response);
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || 'Error al cargar auditoría');
+    } finally {
+      setLoadingAudit(false);
     }
   };
 
@@ -233,6 +300,25 @@ const PlanningListPage = () => {
       title: 'Personal',
       dataIndex: 'user_name',
       key: 'user_name',
+      sorter: (a: MonthlyPlan, b: MonthlyPlan) => (a.user_name || '').localeCompare(b.user_name || ''),
+      filterDropdown: ({ setSelectedKeys, selectedKeys, confirm, clearFilters }: any) => (
+        <div style={{ padding: 8 }}>
+          <Input
+            placeholder="Buscar personal"
+            value={selectedKeys[0]}
+            onChange={e => setSelectedKeys(e.target.value ? [e.target.value] : [])}
+            onPressEnter={() => confirm()}
+            style={{ marginBottom: 8, display: 'block' }}
+          />
+          <Space>
+            <Button type="primary" onClick={() => confirm()} icon={<SearchOutlined />} size="small">Buscar</Button>
+            <Button onClick={() => { clearFilters?.(); confirm(); }} size="small">Limpiar</Button>
+          </Space>
+        </div>
+      ),
+      filterIcon: (filtered: boolean) => <SearchOutlined style={{ color: filtered ? '#1890ff' : undefined }} />,
+      onFilter: (value: any, record: MonthlyPlan) =>
+        (record.user_name || '').toLowerCase().includes(value.toLowerCase()),
     },
     {
       title: 'Período',
@@ -240,34 +326,51 @@ const PlanningListPage = () => {
       render: (_: any, record: MonthlyPlan) => (
         <span>{MONTHS.find((m) => m.value === record.month)?.label} {record.year}</span>
       ),
+      sorter: (a: MonthlyPlan, b: MonthlyPlan) => {
+        const aVal = a.year * 100 + a.month;
+        const bVal = b.year * 100 + b.month;
+        return aVal - bVal;
+      },
+      filters: MONTHS.map(m => ({ text: m.label, value: m.value })),
+      onFilter: (value: any, record: MonthlyPlan) => record.month === value,
     },
     {
       title: 'Estado',
       dataIndex: 'status',
       key: 'status',
       render: (status: string) => getStatusTag(status),
+      filters: [
+        { text: 'Borrador', value: 'Borrador' },
+        { text: 'Aprobado', value: 'Aprobado' },
+        { text: 'Cancelado', value: 'Cancelado' },
+      ],
+      onFilter: (value: any, record: MonthlyPlan) => record.status === value,
     },
     {
       title: 'Planeado',
       dataIndex: 'total_planned',
       key: 'total_planned',
       align: 'center' as const,
+      sorter: (a: MonthlyPlan, b: MonthlyPlan) => a.total_planned - b.total_planned,
     },
     {
       title: 'Ejecutado',
       dataIndex: 'total_executed',
       key: 'total_executed',
       align: 'center' as const,
+      sorter: (a: MonthlyPlan, b: MonthlyPlan) => a.total_executed - b.total_executed,
     },
     {
       title: 'Cumplimiento',
       dataIndex: 'compliance_percentage',
       key: 'compliance_percentage',
+      sorter: (a: MonthlyPlan, b: MonthlyPlan) => a.compliance_percentage - b.compliance_percentage,
       render: (value: number) => (
         <Progress
           percent={Number(value.toFixed(0))}
           size="small"
           strokeColor={getComplianceColor(value)}
+          style={{ minWidth: 100 }}
         />
       ),
     },
@@ -279,7 +382,7 @@ const PlanningListPage = () => {
           <Button
             type="link"
             icon={<EyeOutlined />}
-            onClick={() => navigate(`/planning/${record.id}`)}
+            onClick={() => handleViewPlan(record)}
           >
             Ver
           </Button>
@@ -288,9 +391,23 @@ const PlanningListPage = () => {
               type="link"
               icon={<CheckOutlined />}
               onClick={() => handleApprovePlan(record.id)}
+              style={{ color: '#52c41a' }}
             >
               Aprobar
             </Button>
+          )}
+          {isAdmin && (
+            <Popconfirm
+              title="Eliminar plan mensual"
+              description="Esta acción eliminará el plan completo si no tiene ejecuciones. ¿Continuar?"
+              onConfirm={() => handleDeletePlan(record.id)}
+              okText="Eliminar"
+              cancelText="Cancelar"
+            >
+              <Button type="link" danger icon={<DeleteOutlined />}>
+                Eliminar
+              </Button>
+            </Popconfirm>
           )}
         </Space>
       ),
@@ -300,8 +417,8 @@ const PlanningListPage = () => {
   return (
     <div>
       <Card>
-        <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Title level={4} style={{ margin: 0 }}>Planes Mensuales</Title>
+        <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+          <Title level={4} style={{ margin: 0, whiteSpace: 'nowrap', flexShrink: 0 }}>Planes Mensuales</Title>
 
           <Space>
             <Select
@@ -325,6 +442,18 @@ const PlanningListPage = () => {
             />
             {isCoordinator && (
               <Button
+                icon={<PlusOutlined />}
+                onClick={() => {
+                  setMyPlanYear(year);
+                  setMyPlanMonth(month || dayjs().month() + 1);
+                  setMyPlanModalOpen(true);
+                }}
+              >
+                Mi Plan
+              </Button>
+            )}
+            {isCoordinator && (
+              <Button
                 type="primary"
                 icon={<PlusOutlined />}
                 onClick={() => {
@@ -335,6 +464,16 @@ const PlanningListPage = () => {
                 Programar Planes
               </Button>
             )}
+            {isAdmin && (
+              <Button
+                onClick={() => {
+                  setAuditModalOpen(true);
+                  loadAuditLogs();
+                }}
+              >
+                Auditoría
+              </Button>
+            )}
           </Space>
         </div>
 
@@ -343,6 +482,7 @@ const PlanningListPage = () => {
           columns={columns}
           rowKey="id"
           loading={loading}
+          scroll={{ x: 700 }}
           pagination={{ pageSize: 15 }}
         />
       </Card>
@@ -364,6 +504,7 @@ const PlanningListPage = () => {
         okButtonProps={{ disabled: totalPlansToCreate === 0, loading: creating }}
         cancelText="Cancelar"
         width={700}
+        maskClosable={false}
       >
         {/* ---- SECCIÓN: AÑO ---- */}
         <div style={{ marginBottom: 16 }}>
@@ -473,10 +614,25 @@ const PlanningListPage = () => {
             </Space>
           </div>
 
-          {/* Botones por grupo de trabajo */}
+          {/* Filtro de rol para selección por grupo */}
           {workGroups.length > 0 && (
             <div style={{ marginBottom: 8 }}>
-              <Text type="secondary" style={{ fontSize: 12 }}>Por grupo:</Text>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                <Text type="secondary" style={{ fontSize: 12 }}>Por grupo</Text>
+                <Select
+                  size="small"
+                  value={groupRoleFilter}
+                  onChange={setGroupRoleFilter}
+                  allowClear
+                  placeholder="Todos los roles"
+                  style={{ width: 140, fontSize: 12 }}
+                  options={[
+                    { value: 'TAE', label: 'Solo TAEs' },
+                    { value: 'PSE', label: 'Solo PSEs' },
+                    { value: 'Supervisor', label: 'Solo Supervisores' },
+                  ]}
+                />
+              </div>
               <div style={{ marginTop: 4 }}>
                 <Space wrap>
                   {workGroups.map((g: any) => (
@@ -484,9 +640,11 @@ const PlanningListPage = () => {
                       key={g.id}
                       size="small"
                       type={
-                        assignableUsers.filter((u: any) => u.work_group_id === g.id).length > 0 &&
-                        assignableUsers.filter((u: any) => u.work_group_id === g.id).every((u) => selectedUserIds.includes(u.id))
-                          ? 'primary' : 'default'
+                        (() => {
+                          let members = assignableUsers.filter((u: any) => u.work_group_id === g.id);
+                          if (groupRoleFilter) members = members.filter((u) => u.role === groupRoleFilter);
+                          return members.length > 0 && members.every((u) => selectedUserIds.includes(u.id));
+                        })() ? 'primary' : 'default'
                       }
                       onClick={() => handleSelectByGroup(g.id)}
                     >
@@ -554,6 +712,107 @@ const PlanningListPage = () => {
             style={{ marginTop: 8 }}
           />
         )}
+      </Modal>
+
+      <Modal
+        title="Auditoría de Eliminaciones"
+        open={auditModalOpen}
+        onCancel={() => setAuditModalOpen(false)}
+        footer={null}
+        width={1000}
+      >
+        <Table
+          dataSource={auditLogs}
+          loading={loadingAudit}
+          rowKey="id"
+          size="small"
+          scroll={{ x: 900 }}
+          pagination={{ pageSize: 10 }}
+          columns={[
+            {
+              title: 'Fecha',
+              dataIndex: 'created_at',
+              key: 'created_at',
+              width: 160,
+              render: (value: string) => dayjs(value).format('DD/MM/YYYY HH:mm'),
+            },
+            {
+              title: 'Usuario',
+              dataIndex: 'user_email',
+              key: 'user_email',
+              width: 220,
+            },
+            {
+              title: 'Tipo',
+              dataIndex: 'resource_type',
+              key: 'resource_type',
+              width: 150,
+              render: (value: string) => (
+                <Tag color={value === 'monthly_plan' ? 'purple' : 'blue'}>
+                  {value === 'monthly_plan' ? 'Plan Mensual' : 'Actividad'}
+                </Tag>
+              ),
+            },
+            {
+              title: 'ID Recurso',
+              dataIndex: 'resource_id',
+              key: 'resource_id',
+              width: 100,
+            },
+            {
+              title: 'Detalle',
+              dataIndex: 'description',
+              key: 'description',
+            },
+          ]}
+        />
+      </Modal>
+      {/* ==========================================
+          MODAL MI PLAN (COORDINADOR)
+          ========================================== */}
+      <Modal
+        title="Crear Mi Plan de Trabajo"
+        open={myPlanModalOpen}
+        onCancel={() => setMyPlanModalOpen(false)}
+        onOk={handleCreateMyPlan}
+        okText="Crear Plan"
+        okButtonProps={{ loading: creatingMyPlan }}
+        cancelText="Cancelar"
+        width={400}
+      >
+        <Space direction="vertical" style={{ width: '100%' }} size={16}>
+          <div>
+            <Text strong>Año</Text>
+            <div style={{ marginTop: 8 }}>
+              <Select
+                value={myPlanYear}
+                onChange={setMyPlanYear}
+                options={[
+                  { value: 2025, label: '2025' },
+                  { value: 2026, label: '2026' },
+                  { value: 2027, label: '2027' },
+                ]}
+                style={{ width: '100%' }}
+              />
+            </div>
+          </div>
+          <div>
+            <Text strong>Mes</Text>
+            <div style={{ marginTop: 8 }}>
+              <Select
+                value={myPlanMonth}
+                onChange={setMyPlanMonth}
+                options={MONTHS}
+                style={{ width: '100%' }}
+              />
+            </div>
+          </div>
+          <Alert
+            type="info"
+            showIcon
+            message="Se creará un plan de trabajo personal para el coordinador con las actividades de VERIFICAR, REALIZAR, REVISA y OTROS."
+          />
+        </Space>
       </Modal>
     </div>
   );

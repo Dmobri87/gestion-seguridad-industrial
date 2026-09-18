@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Row, Col, Card, Progress, List, Tag, Spin, Select, Typography, Badge, Space, Alert } from 'antd';
+import { Row, Col, Card, Progress, List, Tag, Spin, Select, Typography, Badge, Space, Alert, Button, message } from 'antd';
 import {
   SafetyOutlined,
   CheckCircleOutlined,
@@ -13,10 +13,12 @@ import {
   FireOutlined,
   RiseOutlined,
   FallOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons';
 import { Area } from '@ant-design/charts';
 import dayjs from 'dayjs';
 import { dashboardApi } from '../../services/api';
+import { useAuthStore } from '../../stores/authStore';
 
 const { Title, Text } = Typography;
 
@@ -178,9 +180,11 @@ const MetricCard = ({
 const DashboardPage = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
+  const [recalcLoading, setRecalcLoading] = useState(false);
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [year, setYear] = useState(dayjs().year());
   const [month, setMonth] = useState(dayjs().month() + 1);
+  const user = useAuthStore((state) => state.user);
 
   const months = [
     { value: 1, label: 'Enero' }, { value: 2, label: 'Febrero' }, { value: 3, label: 'Marzo' },
@@ -196,12 +200,27 @@ const DashboardPage = () => {
   const loadDashboard = async () => {
     setLoading(true);
     try {
-      const response = await dashboardApi.getData(year, month);
+      const isTAE = user?.role === 'TAE' || user?.role === 'PSE';
+      const response = await dashboardApi.getData(year, month, isTAE ? user?.id : undefined);
       setData(response);
     } catch (error) {
       console.error('Error loading dashboard:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleRecalculate = async () => {
+    setRecalcLoading(true);
+    try {
+      await dashboardApi.recalculate(year, month);
+      await loadDashboard();
+      message.success('Cumplimiento recalculado');
+    } catch (error) {
+      console.error('Error recalculating compliance:', error);
+      message.error('No se pudo recalcular el cumplimiento');
+    } finally {
+      setRecalcLoading(false);
     }
   };
 
@@ -221,6 +240,8 @@ const DashboardPage = () => {
       Cumplimiento: Number(t.compliance_percentage.toFixed(1)),
     }));
   }, [data]);
+  const isTAE = user?.role === 'TAE' || user?.role === 'PSE';
+  const canRecalculate = ['Administrador', 'Coordinador'].includes(user?.role || '');
 
   if (loading) {
     return (
@@ -232,17 +253,14 @@ const DashboardPage = () => {
 
   if (!data) return <div>Error al cargar el dashboard</div>;
 
-  const prevMonth = data.compliance.monthly_trend.length >= 2
-    ? data.compliance.monthly_trend[data.compliance.monthly_trend.length - 2].compliance_percentage
-    : 0;
-  const complianceDelta = data.compliance.overall_compliance - prevMonth;
+  const generalCompliance = Number(data.main_kpis.compliance.value || 0);
 
   return (
-    <div style={{ maxWidth: 1400, margin: '0 auto' }}>
+    <div style={{ maxWidth: 1400, margin: '0 auto' }} className="animate-fade-in">
       {/* ═══ Header ═══ */}
-      <div style={{ marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+      <div style={{ marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
         <div>
-          <Title level={3} style={{ margin: 0, fontWeight: 700 }}>Panel de Seguridad Industrial</Title>
+          <Title level={3} style={{ margin: 0, whiteSpace: 'nowrap', flexShrink: 0, fontWeight: 700 }}>Panel de Gestión GAE</Title>
           <Text type="secondary">{data.period}</Text>
         </div>
         <Space>
@@ -253,6 +271,11 @@ const DashboardPage = () => {
             options={[{ value: 2024, label: '2024' }, { value: 2025, label: '2025' }, { value: 2026, label: '2026' }]}
             style={{ width: 100 }}
           />
+          {canRecalculate && (
+            <Button icon={<ReloadOutlined />} loading={recalcLoading} onClick={handleRecalculate}>
+              Recalcular
+            </Button>
+          )}
         </Space>
       </div>
 
@@ -300,19 +323,17 @@ const DashboardPage = () => {
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <MetricCard
-            title="Cumplimiento General"
-            value={data.compliance.overall_compliance.toFixed(1)}
+            title={isTAE ? 'Mi Cumplimiento' : 'Cumplimiento General'}
+            value={generalCompliance.toFixed(1)}
             suffix="%"
             icon={<CheckCircleOutlined />}
-            gradient={data.compliance.overall_compliance >= 80
-              ? 'linear-gradient(135deg, #1890ff 0%, #096dd9 100%)'
-              : data.compliance.overall_compliance >= 50
+            gradient={generalCompliance >= 80
+              ? 'linear-gradient(135deg, #0891b2 0%, #0e7490 100%)'
+              : generalCompliance >= 50
                 ? 'linear-gradient(135deg, #faad14 0%, #d48806 100%)'
                 : 'linear-gradient(135deg, #ff4d4f 0%, #cf1322 100%)'}
-            onClick={() => navigate('/planning')}
-            trend={complianceDelta !== 0
-              ? { direction: complianceDelta > 0 ? 'up' : 'down', label: `${complianceDelta > 0 ? '+' : ''}${complianceDelta.toFixed(1)}% vs mes ant.` }
-              : undefined}
+            onClick={() => navigate('/planificacion')}
+            subtitle={`Acumulado ${year}`}
           />
         </Col>
         <Col xs={24} sm={12} lg={6}>
@@ -343,8 +364,8 @@ const DashboardPage = () => {
               shapeField="smooth"
               height={260}
               style={{ fill: 'linear-gradient(-90deg, rgba(24,144,255,0.25) 0%, rgba(24,144,255,0.02) 100%)' }}
-              line={{ style: { stroke: '#1890ff', lineWidth: 3 }, shapeField: 'smooth' }}
-              point={{ style: { fill: '#1890ff', stroke: '#fff', lineWidth: 2, r: 4 }, shapeField: 'point' }}
+              line={{ style: { stroke: '#0891b2', lineWidth: 3 }, shapeField: 'smooth' }}
+              point={{ style: { fill: '#0891b2', stroke: '#fff', lineWidth: 2, r: 4 }, shapeField: 'point' }}
               axis={{ y: { labelFormatter: (v: number) => `${v}%` } }}
               scale={{ y: { domainMin: 0, domainMax: 100 } }}
             />
@@ -456,10 +477,10 @@ const DashboardPage = () => {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
                   <div style={{
                     width: 44, height: 44, borderRadius: 12,
-                    background: 'linear-gradient(135deg, #1890ff22, #1890ff08)',
+                    background: 'linear-gradient(135deg, #0891b222, #0891b208)',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                   }}>
-                    <ToolOutlined style={{ fontSize: 20, color: '#1890ff' }} />
+                    <ToolOutlined style={{ fontSize: 20, color: '#0891b2' }} />
                   </div>
                   <div>
                     <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>Equipos Operativos</Text>

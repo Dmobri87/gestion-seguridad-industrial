@@ -2,9 +2,9 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Card, Table, InputNumber, Button, Space, Tag, Progress, Spin,
-  Collapse, Typography, Descriptions, message, Popconfirm
+  Collapse, Typography, Descriptions, message, Popconfirm, Switch, Empty
 } from 'antd';
-import { ArrowLeftOutlined, SaveOutlined, CheckOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, SaveOutlined, CheckOutlined, DeleteOutlined, AppstoreAddOutlined } from '@ant-design/icons';
 import { planningApi, activityApi } from '../../services/api';
 import type { PlannedActivity, ActivityCategory } from '../../types';
 import { useAuthStore } from '../../stores/authStore';
@@ -31,10 +31,10 @@ const PlanningDetailPage = () => {
   const user = useAuthStore((state) => state.user);
 
   const isCoordinator = ['Administrador', 'Coordinador'].includes(user?.role || '');
+  const isAdmin = user?.role === 'Administrador';
 
   useEffect(() => {
     loadPlan();
-    loadTemplates();
   }, [planId]);
 
   const loadPlan = async () => {
@@ -43,17 +43,24 @@ const PlanningDetailPage = () => {
       const response = await planningApi.getPlan(Number(planId));
       setPlan(response);
       setActivities(response.planned_activities || []);
-    } catch (error) {
+      // Cargar plantillas según si es plan propio del coordinador o plan de TAE
+      await loadTemplatesForPlan(response);
+    } catch (error: any) {
       console.error('Error loading plan:', error);
-      message.error('Error al cargar el plan');
+      const detail = error?.response?.data?.detail || 'Error al cargar el plan';
+      message.error(detail);
+      navigate('/planificacion');
     } finally {
       setLoading(false);
     }
   };
 
-  const loadTemplates = async () => {
+  const loadTemplatesForPlan = async (planData: any) => {
     try {
-      const response = await activityApi.getTemplatesGrouped();
+      // Si el coordinador está viendo su propio plan → plantillas de coordinador
+      // Si está viendo un plan de TAE → plantillas normales
+      const isCoordinatorOwnPlan = isCoordinator && planData.user_id === user?.id;
+      const response = await activityApi.getTemplatesGrouped(isCoordinatorOwnPlan ? true : false);
       setTemplates(response);
     } catch (error) {
       console.error('Error loading templates:', error);
@@ -105,7 +112,8 @@ const PlanningDetailPage = () => {
             cycle_1_planned: tmpl.default_frequency,
             cycle_2_planned: tmpl.default_frequency,
             cycle_3_planned: tmpl.default_frequency,
-            cycle_4_planned: tmpl.default_frequency,
+            cycle_4_planned: 0,
+            requires_evidence: true,
           });
         }
       });
@@ -132,6 +140,26 @@ const PlanningDetailPage = () => {
       loadPlan();
     } catch (error: any) {
       message.error(error.response?.data?.detail || 'Error al aprobar el plan');
+    }
+  };
+
+  const handleDeletePlan = async () => {
+    try {
+      await planningApi.deletePlan(Number(planId));
+      message.success('Plan eliminado');
+      navigate('/planificacion');
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || 'Error al eliminar el plan');
+    }
+  };
+
+  const handleDeleteActivity = async (activityId: number) => {
+    try {
+      await planningApi.deleteActivity(activityId);
+      message.success('Actividad eliminada');
+      loadPlan();
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || 'Error al eliminar la actividad');
     }
   };
 
@@ -168,8 +196,32 @@ const PlanningDetailPage = () => {
       render: (text: string, record: PlannedActivity) => (
         <Space>
           {record.is_critical && <Tag color="red">Crítica</Tag>}
+          {(record as any).coordinator_only && <Tag color="orange">Coordinador</Tag>}
           <span>{text}</span>
         </Space>
+      ),
+    },
+    {
+      title: 'Evidencia',
+      key: 'requires_evidence',
+      align: 'center' as const,
+      width: 120,
+      render: (_: any, record: PlannedActivity) => (
+        <Switch
+          checked={changes[record.id]?.requires_evidence ?? record.requires_evidence ?? true}
+          onChange={(checked) => {
+            setChanges((prev) => ({
+              ...prev,
+              [record.id]: {
+                ...prev[record.id],
+                requires_evidence: checked,
+              },
+            }));
+          }}
+          disabled={!isCoordinator || plan?.status !== 'Borrador'}
+          checkedChildren="Sí"
+          unCheckedChildren="No"
+        />
       ),
     },
     {
@@ -239,28 +291,6 @@ const PlanningDetailPage = () => {
       ),
     },
     {
-      title: 'Ciclo 4',
-      key: 'cycle_4',
-      align: 'center' as const,
-      width: 100,
-      render: (_: any, record: PlannedActivity) => (
-        <Space direction="vertical" size={0}>
-          <InputNumber
-            size="small"
-            min={0}
-            max={99}
-            value={changes[record.id]?.cycle_4_planned ?? record.cycle_4_planned}
-            onChange={(v) => handleCycleChange(record.id, 4, v)}
-            disabled={!isCoordinator || plan?.status !== 'Borrador'}
-            style={{ width: 60 }}
-          />
-          <Text type="secondary" style={{ fontSize: 11 }}>
-            Ej: {record.cycle_4_executed}
-          </Text>
-        </Space>
-      ),
-    },
-    {
       title: 'Total',
       key: 'total',
       align: 'center' as const,
@@ -268,8 +298,7 @@ const PlanningDetailPage = () => {
       render: (_: any, record: PlannedActivity) => {
         const planned = (changes[record.id]?.cycle_1_planned ?? record.cycle_1_planned) +
                        (changes[record.id]?.cycle_2_planned ?? record.cycle_2_planned) +
-                       (changes[record.id]?.cycle_3_planned ?? record.cycle_3_planned) +
-                       (changes[record.id]?.cycle_4_planned ?? record.cycle_4_planned);
+                       (changes[record.id]?.cycle_3_planned ?? record.cycle_3_planned);
         return (
           <div>
             <div>{planned}</div>
@@ -295,6 +324,24 @@ const PlanningDetailPage = () => {
         />
       ),
     },
+    ...(isAdmin ? [{
+      title: 'Acciones',
+      key: 'actions',
+      width: 110,
+      render: (_: any, record: PlannedActivity) => (
+        <Popconfirm
+          title="Eliminar actividad"
+          description="Se eliminará esta actividad del plan si no tiene ejecuciones. ¿Continuar?"
+          onConfirm={() => handleDeleteActivity(record.id)}
+          okText="Eliminar"
+          cancelText="Cancelar"
+        >
+          <Button type="link" danger size="small" icon={<DeleteOutlined />}>
+            Eliminar
+          </Button>
+        </Popconfirm>
+      ),
+    }] : []),
   ];
 
   if (loading) {
@@ -306,7 +353,7 @@ const PlanningDetailPage = () => {
   }
 
   if (!plan) {
-    return <div>Plan no encontrado</div>;
+    return null;
   }
 
   return (
@@ -315,13 +362,13 @@ const PlanningDetailPage = () => {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
             <Space style={{ marginBottom: 16 }}>
-              <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/planning')}>
+              <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/planificacion')}>
                 Volver
               </Button>
             </Space>
 
             <Descriptions column={3}>
-              <Descriptions.Item label="TAE">{plan.user_name}</Descriptions.Item>
+              <Descriptions.Item label={plan.user_id === user?.id ? 'Coordinador' : 'TAE'}>{plan.user_name}</Descriptions.Item>
               <Descriptions.Item label="Período">
                 {plan.month}/{plan.year}
               </Descriptions.Item>
@@ -343,9 +390,9 @@ const PlanningDetailPage = () => {
 
           {isCoordinator && (
             <Space>
-              {plan.status === 'Borrador' && activities.length === 0 && (
-                <Button onClick={handleAddActivities}>
-                  Cargar Actividades
+              {plan.status === 'Borrador' && (
+                <Button icon={<AppstoreAddOutlined />} onClick={handleAddActivities}>
+                  {activities.length === 0 ? 'Cargar Actividades' : 'Agregar Actividades'}
                 </Button>
               )}
               {Object.keys(changes).length > 0 && (
@@ -371,32 +418,70 @@ const PlanningDetailPage = () => {
                   </Button>
                 </Popconfirm>
               )}
+              {isAdmin && (
+                <Popconfirm
+                  title="Eliminar plan mensual"
+                  description="Esta acción eliminará el plan completo si no tiene ejecuciones. ¿Continuar?"
+                  onConfirm={handleDeletePlan}
+                  okText="Eliminar"
+                  cancelText="Cancelar"
+                >
+                  <Button danger icon={<DeleteOutlined />}>
+                    Eliminar Plan
+                  </Button>
+                </Popconfirm>
+              )}
             </Space>
           )}
         </div>
       </Card>
 
-      <Collapse defaultActiveKey={Object.keys(groupedActivities)}>
-        {Object.entries(groupedActivities).map(([code, group]) => (
-          <Panel
-            header={
-              <Space>
-                <span style={{ fontWeight: 600 }}>{group.category.name}</span>
-                <Tag>{group.activities.length} actividades</Tag>
+      {activities.length === 0 ? (
+        <Card>
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description={
+              <Space direction="vertical" size={4}>
+                <span style={{ fontWeight: 500 }}>Este plan no tiene actividades programadas</span>
+                <span style={{ color: '#8c8c8c', fontSize: 13 }}>
+                  {isCoordinator
+                    ? 'Usa "Agregar Actividades" para cargar las actividades del catálogo en este plan.'
+                    : 'El coordinador aún no ha cargado las actividades para este plan. Consulta con tu supervisor.'}
+                </span>
               </Space>
             }
-            key={code}
           >
-            <Table
-              dataSource={group.activities}
-              columns={columns}
-              rowKey="id"
-              pagination={false}
-              size="small"
-            />
-          </Panel>
-        ))}
-      </Collapse>
+            {isCoordinator && plan.status === 'Borrador' && (
+              <Button type="primary" icon={<AppstoreAddOutlined />} onClick={handleAddActivities}>
+                Cargar Actividades del Catálogo
+              </Button>
+            )}
+          </Empty>
+        </Card>
+      ) : (
+        <Collapse>
+          {Object.entries(groupedActivities).map(([code, group]) => (
+            <Panel
+              header={
+                <Space>
+                  <span style={{ fontWeight: 600 }}>{group.category.name}</span>
+                  <Tag>{group.activities.length} actividades</Tag>
+                </Space>
+              }
+              key={code}
+            >
+              <Table
+                dataSource={group.activities}
+                columns={columns}
+                rowKey="id"
+                scroll={{ x: 500 }}
+                pagination={false}
+                size="small"
+              />
+            </Panel>
+          ))}
+        </Collapse>
+      )}
     </div>
   );
 };

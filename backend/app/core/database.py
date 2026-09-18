@@ -1,8 +1,12 @@
 import os
+import logging
 from sqlalchemy import create_engine, event
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
+
+# Configurar logging
+logger = logging.getLogger(__name__)
 
 # Cargar variables de entorno desde el archivo .env
 load_dotenv()
@@ -18,9 +22,20 @@ if DATABASE_URL.startswith("sqlite:///./"):
     _db_path = os.path.join(_backend_dir, _db_filename)
     DATABASE_URL = f"sqlite:///{_db_path}"
 
-# Crear el engine de SQLAlchemy
-if DATABASE_URL.startswith("sqlite"):
-    # SQLite necesita connect_args especial
+# Crear el engine de SQLAlchemy según el tipo de base de datos
+if DATABASE_URL.startswith("postgresql"):
+    # PostgreSQL - configuración de producción con connection pooling
+    logger.info("Usando base de datos PostgreSQL (produccion)")
+    engine = create_engine(
+        DATABASE_URL,
+        pool_size=10,
+        max_overflow=20,
+        pool_pre_ping=True,
+        echo=False
+    )
+elif DATABASE_URL.startswith("sqlite"):
+    # SQLite - configuración de desarrollo local
+    logger.info("Usando base de datos SQLite (desarrollo local)")
     engine = create_engine(
         DATABASE_URL,
         connect_args={"check_same_thread": False},
@@ -35,14 +50,15 @@ if DATABASE_URL.startswith("sqlite"):
         cursor.execute("PRAGMA journal_mode = WAL")
         cursor.close()
 else:
-    # PostgreSQL u otras bases de datos
+    # Fallback genérico para otras bases de datos
+    logger.warning(f"Tipo de base de datos no reconocido, usando configuracion generica: {DATABASE_URL.split('://')[0]}")
     engine = create_engine(
         DATABASE_URL,
         pool_pre_ping=True,
-        pool_size=10,
-        max_overflow=20,
         echo=False
     )
+
+logger.info(f"Database engine creado: {DATABASE_URL.split('://')[0]}://***")
 
 # Crear la sesión
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -54,7 +70,7 @@ Base = declarative_base()
 def get_db():
     """
     Dependencia que provee una sesión de base de datos.
-    
+
     Se usa en los endpoints así:
     def my_endpoint(db: Session = Depends(get_db)):
         ...

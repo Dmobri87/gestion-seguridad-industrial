@@ -10,5 +10,8 @@ from app.api.v1.endpoints import (
     emergencies,
     equipment,
     certifications,
+    notifications,
+    alerts,
     dashboard,
+    reports,
 )

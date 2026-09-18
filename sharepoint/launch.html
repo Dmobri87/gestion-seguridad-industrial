@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GAE — Lanzador</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', Tahoma, sans-serif;
+    background: linear-gradient(135deg, #1e3a5f 0%, #2d6a9f 100%);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .card {
+    background: white;
+    border-radius: 16px;
+    padding: 48px 40px;
+    text-align: center;
+    max-width: 420px;
+    width: 90%;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+  }
+  .logo {
+    font-size: 64px;
+    margin-bottom: 16px;
+  }
+  h1 {
+    color: #1e3a5f;
+    font-size: 24px;
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+  .subtitle {
+    color: #666;
+    font-size: 14px;
+    margin-bottom: 32px;
+    line-height: 1.5;
+  }
+  .btn-launch {
+    display: inline-block;
+    background: linear-gradient(135deg, #1e3a5f, #2d6a9f);
+    color: white;
+    border: none;
+    border-radius: 10px;
+    padding: 16px 40px;
+    font-size: 18px;
+    font-weight: 600;
+    cursor: pointer;
+    width: 100%;
+    transition: transform 0.1s, box-shadow 0.1s;
+    text-decoration: none;
+  }
+  .btn-launch:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(30,58,95,0.4);
+  }
+  .btn-launch:active { transform: translateY(0); }
+  .status {
+    margin-top: 20px;
+    padding: 12px;
+    border-radius: 8px;
+    font-size: 14px;
+    display: none;
+  }
+  .status.loading { background: #e3f2fd; color: #1565c0; display: block; }
+  .status.success { background: #e8f5e9; color: #2e7d32; display: block; }
+  .status.error { background: #ffebee; color: #c62828; display: block; }
+  .divider { margin: 24px 0; border: none; border-top: 1px solid #eee; }
+  .bookmarklet {
+    font-size: 12px;
+    color: #999;
+    margin-top: 8px;
+  }
+  .bookmarklet a {
+    color: #2d6a9f;
+    font-weight: 600;
+    text-decoration: none;
+    padding: 6px 12px;
+    border: 1px dashed #2d6a9f;
+    border-radius: 6px;
+    display: inline-block;
+    margin-top: 4px;
+    cursor: move;
+  }
+  .bookmarklet a:hover { background: #f0f8ff; }
+  .info {
+    margin-top: 16px;
+    font-size: 12px;
+    color: #aaa;
+    line-height: 1.6;
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">🚒</div>
+  <h1>Gestión GAE</h1>
+  <p class="subtitle">Sistema de Gestión de Actividades y Emergencias<br>Seguridad Industrial — Cerrejón</p>
+
+  <button class="btn-launch" onclick="launchApp()">🚀 Abrir Gestión GAE</button>
+
+  <div class="status" id="status"></div>
+
+  <hr class="divider">
+
+  <div class="bookmarklet">
+    <div style="margin-bottom:6px">Arrastra este botón a tu barra de favoritos para acceso rápido:</div>
+    <a href="javascript:(function(){var s=document.createElement('script');s.src='/sites/SeguridadIndustrial/SiteAssets/SSI-App/app-completo.js?v='+Date.now();document.head.appendChild(s);window.__GE_APP_LOADED__=false;})();" title="GAE Launcher">🚒 GAE</a>
+  </div>
+
+  <p class="info">
+    Al hacer clic en "Abrir", la app cargará automáticamente<br>
+    en la página de SharePoint y quedará activa para futuras visitas.
+  </p>
+</div>
+
+<script>
+var APP_URL = '/sites/SeguridadIndustrial/SiteAssets/SSI-App/app-completo.js';
+var TARGET_PAGE = '/sites/SeguridadIndustrial/SitePages/GestionEmergencias-Classic.aspx';
+
+function setStatus(msg, type) {
+  var el = document.getElementById('status');
+  el.textContent = msg;
+  el.className = 'status ' + type;
+}
+
+function launchApp() {
+  setStatus('⏳ Cargando la aplicación...', 'loading');
+
+  // Open target SP page in new tab, inject script via URL fragment trick
+  // The app registers a SW that handles future loads automatically
+  var url = TARGET_PAGE + '#gae-direct-load';
+  var win = window.open(url, '_blank');
+
+  if (!win) {
+    setStatus('⚠️ Bloqueado por el navegador. Permite popups para este sitio.', 'error');
+    return;
+  }
+
+  // After a moment, inject the script into the opened window
+  var attempts = 0;
+  var interval = setInterval(function() {
+    attempts++;
+    try {
+      if (win.document && win.document.readyState !== 'loading') {
+        // Clear any previous load flag
+        win.__GE_APP_LOADED__ = false;
+        var s = win.document.createElement('script');
+        s.src = APP_URL + '?v=' + Date.now();
+        win.document.head.appendChild(s);
+        clearInterval(interval);
+        setStatus('✅ Aplicación cargando en la nueva pestaña.', 'success');
+      }
+    } catch(e) {
+      // Cross-origin — page redirected to login, or different origin
+      if (attempts > 20) {
+        clearInterval(interval);
+        setStatus('ℹ️ La app abrió en nueva pestaña. Si no carga sola, usa el bookmarklet.', 'loading');
+      }
+    }
+  }, 300);
+}
+</script>
+</body>
+</html>

@@ -46,7 +46,7 @@ class MonthlyPlan(Base):
     approved_at = Column(DateTime(timezone=True), nullable=True)
 
     # Organización
-    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True)
 
     # Métricas calculadas
     total_planned = Column(Integer, default=0)
@@ -70,7 +70,7 @@ class MonthlyPlan(Base):
 class PlanningCycle(Base):
     """
     Ciclos semanales dentro del plan mensual.
-    Típicamente 4 ciclos por mes.
+    Típicamente 3 ciclos por mes.
     """
     __tablename__ = "planning_cycles"
 
@@ -136,6 +136,10 @@ class PlannedActivity(Base):
 
     # Notas específicas
     notes = Column(Text, nullable=True)
+
+    # Evidencia requerida para esta actividad en este plan.
+    # Default: requerida en todos los planes; el coordinador puede exceptuar manualmente.
+    requires_evidence = Column(Boolean, default=True, nullable=False)
 
     # Estado
     is_active = Column(Boolean, default=True)

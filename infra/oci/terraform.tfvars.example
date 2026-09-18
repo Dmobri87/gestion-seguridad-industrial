@@ -1,0 +1,23 @@
+tenancy_ocid         = "ocid1.tenancy.oc1..xxxx"
+user_ocid            = "ocid1.user.oc1..xxxx"
+fingerprint          = "aa:bb:cc:dd:ee:ff:11:22:33:44:55:66:77:88:99:00"
+private_key_path     = "~/.oci/oci_api_key.pem"
+region               = "us-ashburn-1"
+compartment_ocid     = "ocid1.compartment.oc1..xxxx"
+availability_domain  = "XXXX:US-ASHBURN-AD-1"
+ssh_public_key_path  = "~/.ssh/id_rsa.pub"
+source_image_ocid    = "ocid1.image.oc1.iad.xxxxx"
+
+repo_url             = "https://github.com/<your-org>/<your-repo>.git"
+repo_branch          = "main"
+
+# IMPORTANT: replace with your own public IP/32
+allowed_ssh_cidr     = "203.0.113.10/32"
+
+instance_shape       = "VM.Standard.A1.Flex"
+ocpus                = 2
+memory_in_gbs        = 12
+boot_volume_size_in_gbs = 80
+
+create_extra_block_volume = true
+extra_block_volume_size_gbs = 50

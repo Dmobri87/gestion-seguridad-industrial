@@ -1,42 +1,133 @@
-import os
 import hmac
 import hashlib
 import uuid
 import logging
+import os
+import secrets
 from datetime import datetime, timedelta, timezone
+from typing import Optional
+
 import bcrypt
-from jose import jwt
-from dotenv import load_dotenv
+from jose import jwt, JWTError
+
+from app.core.config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, APP_NAME
 
 logger = logging.getLogger(__name__)
 
-# Cargar variables de entorno
-load_dotenv()
 
-# Configuración desde variables de entorno
-SECRET_KEY = os.getenv("SECRET_KEY")
-ALGORITHM = os.getenv("ALGORITHM", "HS256")
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
-
-# Validar que existe la SECRET_KEY y tiene suficiente entropía
-if not SECRET_KEY:
-    raise ValueError("SECRET_KEY no está definida en las variables de entorno")
-if len(SECRET_KEY) < 32:
-    raise ValueError("SECRET_KEY debe tener al menos 32 caracteres")
-
-# Factor de costo para bcrypt (2^12 = 4096 iteraciones)
-BCRYPT_ROUNDS = 12
+# ──────────────────────────────────────────────────────────────────
+# Constantes
+# ──────────────────────────────────────────────────────────────────
+BCRYPT_ROUNDS = 13  # Aumentado de 12 a 13 para mayor seguridad en 2026
+JWT_AUDIENCE = "api.seguridad-industrial"
+JWT_ISSUER = APP_NAME
 
 
-def get_password_hash(password: str) -> str:
+# ──────────────────────────────────────────────────────────────────
+# Redis connection for token revocation (persistent)
+# ──────────────────────────────────────────────────────────────────
+_redis_client = None
+_REVOKED_TOKEN_PREFIX = "revoked_token:"
+_TOKEN_EXPIRY_SECONDS = 86400  # 24 hours (tokens expire anyway)
+
+
+def _get_redis_client():
     """
-    Encripta una contraseña usando bcrypt con factor de costo 12.
+    Obtiene el cliente Redis para revocación de tokens.
+    Crea la conexión la primera vez que se llama.
+    Falls back to in-memory if Redis is unavailable.
+    """
+    global _redis_client
+    if _redis_client is None:
+        redis_url = os.getenv("REDIS_URL", "")
+        if redis_url:
+            try:
+                import redis
+                _redis_client = redis.from_url(redis_url, decode_responses=True)
+                # Test connection
+                _redis_client.ping()
+                logger.info("Conexión a Redis establecida para revocación de tokens")
+            except Exception as e:
+                logger.warning(
+                    "No se pudo conectar a Redis (%s). Usando fallback en memoria. "
+                    "Los tokens revocados NO persistirán entre reinicios.",
+                    str(e)
+                )
+                _redis_client = "fallback"
+        else:
+            logger.warning(
+                "REDIS_URL no configurada. Usando almacenamiento en memoria para tokens revocados. "
+                "Los tokens revocados NO persistirán entre reinicios."
+            )
+            _redis_client = "fallback"
+    return _redis_client
+
+
+# Fallback in-memory storage (solo si Redis no está disponible)
+_revoked_jtis_fallback: set[str] = set()
+
+
+def revoke_token(jti: str, expires_in: int = _TOKEN_EXPIRY_SECONDS) -> None:
+    """
+    Agrega un JTI al conjunto de tokens revocados.
+    Usa Redis si está disponible, fallback a memoria si no.
 
     Args:
-        password: Contraseña en texto plano
+        jti: El JWT ID del token a revocar.
+        expires_in: Tiempo en segundos hasta que expire el registro de revocación.
+    """
+    client = _get_redis_client()
+
+    if client and client != "fallback":
+        try:
+            key = f"{_REVOKED_TOKEN_PREFIX}{jti}"
+            client.setex(key, expires_in, "1")
+            logger.info("Token revocado en Redis: jti=%s", jti)
+            return
+        except Exception as e:
+            logger.warning("Error guardando token revocado en Redis: %s", str(e))
+
+    # Fallback a memoria
+    _revoked_jtis_fallback.add(jti)
+    logger.info("Token revocado en memoria: jti=%s", jti)
+
+
+def is_token_revoked(jti: str) -> bool:
+    """
+    Verifica si un JTI ha sido revocado.
+    Consulta Redis si está disponible, fallback a memoria si no.
+
+    Args:
+        jti: El JWT ID a verificar.
 
     Returns:
-        Hash bcrypt de la contraseña
+        True si el token ha sido revocado.
+    """
+    client = _get_redis_client()
+
+    if client and client != "fallback":
+        try:
+            key = f"{_REVOKED_TOKEN_PREFIX}{jti}"
+            return client.exists(key) > 0
+        except Exception as e:
+            logger.warning("Error verificando token revocado en Redis: %s", str(e))
+
+    # Fallback a memoria
+    return jti in _revoked_jtis_fallback
+
+
+# ──────────────────────────────────────────────────────────────────
+# Password hashing
+# ──────────────────────────────────────────────────────────────────
+def get_password_hash(password: str) -> str:
+    """
+    Encripta una contrasena usando bcrypt con factor de costo 12.
+
+    Args:
+        password: Contrasena en texto plano
+
+    Returns:
+        Hash bcrypt de la contrasena
     """
     password_bytes = password.encode("utf-8")
     salt = bcrypt.gensalt(rounds=BCRYPT_ROUNDS)
@@ -45,11 +136,11 @@ def get_password_hash(password: str) -> str:
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
-    Verifica si una contraseña coincide con su hash.
+    Verifica si una contrasena coincide con su hash.
     Soporta tanto el nuevo formato bcrypt como el legacy SHA-256.
 
     Args:
-        plain_password: Contraseña en texto plano
+        plain_password: Contrasena en texto plano
         hashed_password: Hash almacenado en la base de datos
 
     Returns:
@@ -71,16 +162,14 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
         return False
     except (ValueError, TypeError) as e:
-        logger.warning("Error verificando contraseña: %s", str(e))
+        logger.warning("Error verificando contrasena: %s", str(e))
         return False
 
 
 def needs_rehash(hashed_password: str) -> bool:
     """Verifica si un hash necesita ser actualizado (de SHA-256 a bcrypt)."""
     if hashed_password.startswith("$2b$") or hashed_password.startswith("$2a$"):
-        # Verificar si el factor de costo es el actual
         try:
-            # Formato bcrypt: $2b$XX$ donde XX es el costo
             cost = int(hashed_password.split("$")[2])
             return cost < BCRYPT_ROUNDS
         except (IndexError, ValueError):
@@ -88,13 +177,17 @@ def needs_rehash(hashed_password: str) -> bool:
     return True  # Legacy SHA-256 siempre necesita rehash
 
 
-def create_access_token(data: dict, expires_delta: timedelta = None) -> str:
+# ──────────────────────────────────────────────────────────────────
+# JWT creation and verification
+# ──────────────────────────────────────────────────────────────────
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """
-    Crea un token JWT con jti (JWT ID) para tracking.
+    Crea un token JWT con jti (JWT ID) para tracking y revocacion.
+    Incluye claims de seguridad: aud (audience), iss (issuer), nbf (not before).
 
     Args:
-        data: Información a codificar en el token
-        expires_delta: Tiempo de expiración personalizado
+        data: Informacion a codificar en el token
+        expires_delta: Tiempo de expiracion personalizado
 
     Returns:
         Token JWT como string
@@ -110,8 +203,68 @@ def create_access_token(data: dict, expires_delta: timedelta = None) -> str:
     to_encode.update({
         "exp": expire,
         "iat": now,
+        "nbf": now,  # Not Before: token válido desde ahora
         "jti": uuid.uuid4().hex,
+        "aud": JWT_AUDIENCE,  # Audience: para qué API es este token
+        "iss": JWT_ISSUER,  # Issuer: quién emitió el token
     })
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
     return encoded_jwt
+
+
+def verify_access_token(token: str) -> Optional[dict]:
+    """
+    Decodifica y valida un token JWT, incluyendo verificacion de revocacion.
+    Valida: firma, expiración, audience, issuer, y revocación.
+
+    Args:
+        token: Token JWT como string.
+
+    Returns:
+        El payload decodificado si el token es valido, None en caso contrario.
+    """
+    try:
+        payload = jwt.decode(
+            token,
+            SECRET_KEY,
+            algorithms=[ALGORITHM],
+            audience=JWT_AUDIENCE,
+            issuer=JWT_ISSUER,
+            options={
+                "require_exp": True,
+                "require_iat": True,
+                "require_sub": True,
+            }
+        )
+    except JWTError as e:
+        logger.debug("Error decodificando JWT: %s", str(e))
+        return None
+
+    # Verificar campos obligatorios adicionales
+    if payload.get("user_id") is None:
+        logger.warning("Token sin user_id")
+        return None
+
+    # Verificar revocacion por JTI
+    jti = payload.get("jti")
+    if jti and is_token_revoked(jti):
+        logger.warning("Intento de uso de token revocado: jti=%s, sub=%s", jti, payload.get("sub"))
+        return None
+
+    return payload
+
+
+def create_refresh_token() -> tuple[str, str]:
+    """
+    Genera un refresh token opaco y su hash SHA-256.
+    Retorna (token_raw, token_hash).
+    """
+    token_raw = secrets.token_urlsafe(64)
+    token_hash = hashlib.sha256(token_raw.encode("utf-8")).hexdigest()
+    return token_raw, token_hash
+
+
+def hash_refresh_token(token: str) -> str:
+    """Calcula hash SHA-256 de un refresh token opaco."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()

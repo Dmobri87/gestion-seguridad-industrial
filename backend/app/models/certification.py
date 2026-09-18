@@ -210,6 +210,7 @@ class Notification(Base):
 
     # Tipo de notificación
     notification_type = Column(String(100), nullable=False)  # certification_alert, plan_assigned, etc.
+    type = Column(String(20), default="info")  # info, warning, error, success
 
     # Título y mensaje
     title = Column(String(255), nullable=False)

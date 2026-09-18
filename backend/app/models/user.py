@@ -62,14 +62,23 @@ class User(Base):
     two_factor_secret = Column(String(255), nullable=True)
 
     # OTP para autenticación de dos factores por email
-    otp_code = Column(String(6), nullable=True)
+    otp_code = Column(String(64), nullable=True)  # Hash SHA256 del OTP
     otp_expires_at = Column(DateTime(timezone=True), nullable=True)
     otp_attempts = Column(Integer, default=0)
+
+    # Refresh tokens (solo se guarda hash)
+    refresh_token_hash = Column(String(128), nullable=True, index=True)
+    refresh_token_expires_at = Column(DateTime(timezone=True), nullable=True)
 
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     last_login = Column(DateTime(timezone=True), nullable=True)
+
+    # Presencia
+    is_online = Column(Boolean, default=False)
+    last_seen_at = Column(DateTime(timezone=True), nullable=True)
+    current_route = Column(String(255), nullable=True)
 
     # Relaciones
     monthly_plans = relationship("MonthlyPlan", back_populates="user", foreign_keys="MonthlyPlan.user_id")

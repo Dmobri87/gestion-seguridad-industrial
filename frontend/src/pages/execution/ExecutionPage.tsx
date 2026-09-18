@@ -8,10 +8,10 @@ import {
   PlusOutlined, CheckOutlined, CloseOutlined, ClockCircleOutlined,
   CalendarOutlined, FireOutlined, FileTextOutlined, CheckCircleOutlined,
   ExclamationCircleOutlined, SyncOutlined, UploadOutlined, PaperClipOutlined,
-  EyeOutlined, DeleteOutlined, CameraOutlined
+  EyeOutlined, DeleteOutlined, CameraOutlined, EditOutlined, TeamOutlined, SearchOutlined
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { executionsApi } from '../../services/api';
+import { executionsApi, usersApi } from '../../services/api';
 import type { ActivityExecution } from '../../types';
 import { useAuthStore } from '../../stores/authStore';
 
@@ -75,22 +75,45 @@ const ExecutionPage = () => {
   const [evidenceModalOpen, setEvidenceModalOpen] = useState(false);
   const [evidenceFiles, setEvidenceFiles] = useState<EvidenceFile[]>([]);
   const [evidenceLoading, setEvidenceLoading] = useState(false);
+  const [secureFileUrls, setSecureFileUrls] = useState<Record<number, string>>({});
   const [selectedExecutionId, setSelectedExecutionId] = useState<number | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewImage, setPreviewImage] = useState('');
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
+  const [pdfPreviewOpen, setPdfPreviewOpen] = useState(false);
+  const [pdfPreviewName, setPdfPreviewName] = useState('');
+
+  // Estado para corrección de rechazadas
+  const [correctModalOpen, setCorrectModalOpen] = useState(false);
+  const [selectedExecution, setSelectedExecution] = useState<ActivityExecution | null>(null);
+  const [correctForm] = Form.useForm();
+  const [correctFileList, setCorrectFileList] = useState<any[]>([]);
+
+  // Estado para filtro de TAE (approvers)
+  const [taeUsers, setTaeUsers] = useState<any[]>([]);
+  const [selectedTaeId, setSelectedTaeId] = useState<number | undefined>(undefined);
 
   const isApprover = ['Administrador', 'Coordinador', 'Supervisor'].includes(user?.role || '');
 
   useEffect(() => {
+    if (isApprover) {
+      usersApi.getAll({ role: 'TAE' }).then((users: any) => {
+        setTaeUsers(Array.isArray(users) ? users : users.users || []);
+      }).catch(console.error);
+    }
+  }, [isApprover]);
+
+  useEffect(() => {
     loadData();
-  }, [year, month]);
+  }, [year, month, selectedTaeId]);
 
   const loadData = async () => {
     setLoading(true);
     try {
+      const userIdFilter = isApprover ? selectedTaeId : undefined;
       const [execsResponse, pendingResponse, statsResponse] = await Promise.all([
-        executionsApi.getAll(year, month),
-        executionsApi.getMyToday(),
+        executionsApi.getAll(year, month, userIdFilter),
+        executionsApi.getMyToday(year, month),
         executionsApi.getStats(year, month),
       ]);
       setExecutions(execsResponse);
@@ -125,16 +148,37 @@ const ExecutionPage = () => {
     }
   };
 
+  const getCycleNumberForDate = (target: dayjs.Dayjs) => {
+    const day = target.date();
+    if (day <= 10) return 1;
+    if (day <= 20) return 2;
+    return 3;
+  };
+
+  const getSelectedExecutionDate = () => {
+    const base = dayjs(`${year}-${String(month).padStart(2, '0')}-01`);
+    const day = Math.min(dayjs().date(), base.daysInMonth());
+    return base.date(day);
+  };
+
   const handleCreateExecution = async (values: any) => {
+    const selectedPlanned = pendingActivities.find(
+      (a) => a.planned_activity_id === values.planned_activity_id
+    );
+    if (selectedPlanned?.requires_evidence && fileList.length === 0) {
+      message.warning('Esta actividad requiere evidencia. Adjunta al menos un archivo.');
+      return;
+    }
+
     try {
-      const cycleNumber = Math.ceil(dayjs(values.execution_date).date() / 7);
+      const cycleNumber = getCycleNumberForDate(dayjs(values.execution_date));
 
       const result = await executionsApi.create({
         planned_activity_id: values.planned_activity_id,
         user_id: user?.id,
         organization_id: user?.organization_id,
         execution_date: values.execution_date.format('YYYY-MM-DD'),
-        cycle_number: Math.min(cycleNumber, 4),
+        cycle_number: cycleNumber,
         status: values.status,
         observation: values.observation,
         quantity: values.quantity || 1,
@@ -157,16 +201,21 @@ const ExecutionPage = () => {
 
   const handleQuickExecution = async (values: any) => {
     if (!selectedActivity) return;
+    if (selectedActivity.requires_evidence && quickFileList.length === 0) {
+      message.warning('Esta actividad requiere evidencia. Adjunta al menos un archivo.');
+      return;
+    }
 
     try {
-      const cycleNumber = Math.ceil(dayjs().date() / 7);
+      const executionDate = getSelectedExecutionDate();
+      const cycleNumber = getCycleNumberForDate(executionDate);
 
       const result = await executionsApi.create({
         planned_activity_id: selectedActivity.planned_activity_id,
         user_id: user?.id,
         organization_id: user?.organization_id,
-        execution_date: dayjs().format('YYYY-MM-DD'),
-        cycle_number: Math.min(cycleNumber, 4),
+        execution_date: executionDate.format('YYYY-MM-DD'),
+        cycle_number: cycleNumber,
         status: values.status || 'Completado',
         observation: values.observation,
         quantity: 1,
@@ -199,6 +248,42 @@ const ExecutionPage = () => {
   };
 
   // ==========================================
+  // CORRECCIÓN DE RECHAZADAS
+  // ==========================================
+
+  const handleCorrectExecution = async (values: any) => {
+    if (!selectedExecution) return;
+    try {
+      await executionsApi.correct(selectedExecution.id, {
+        observation: values.observation,
+        novelty_description: values.novelty_description,
+        status: values.status,
+      });
+      if (correctFileList.length > 0) {
+        await uploadFilesToExecution(selectedExecution.id, correctFileList);
+      }
+      message.success('Ejecución corregida y reenviada para aprobación');
+      setCorrectModalOpen(false);
+      correctForm.resetFields();
+      setCorrectFileList([]);
+      setSelectedExecution(null);
+      loadData();
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || 'Error al corregir');
+    }
+  };
+
+  const openCorrectModal = (execution: ActivityExecution) => {
+    setSelectedExecution(execution);
+    correctForm.setFieldsValue({
+      observation: execution.observation || '',
+      novelty_description: execution.novelty_description || '',
+      status: execution.status,
+    });
+    setCorrectModalOpen(true);
+  };
+
+  // ==========================================
   // VER EVIDENCIAS
   // ==========================================
 
@@ -206,6 +291,7 @@ const ExecutionPage = () => {
     setSelectedExecutionId(executionId);
     setEvidenceModalOpen(true);
     setEvidenceLoading(true);
+    setSecureFileUrls({});
     try {
       const files = await executionsApi.getFiles(executionId);
       setEvidenceFiles(files);
@@ -241,6 +327,91 @@ const ExecutionPage = () => {
   };
 
   const isImageFile = (fileType: string) => fileType.startsWith('image/');
+
+  useEffect(() => {
+    let active = true;
+    const objectUrls: string[] = [];
+
+    const loadSecureImageUrls = async () => {
+      const next: Record<number, string> = {};
+      for (const file of evidenceFiles) {
+        if (!isImageFile(file.file_type)) continue;
+        try {
+          const blob = await executionsApi.getSecureFileBlob(file.file_url);
+          const objectUrl = URL.createObjectURL(blob);
+          objectUrls.push(objectUrl);
+          next[file.id] = objectUrl;
+        } catch (error) {
+          console.error('Error loading secure image:', error);
+        }
+      }
+      if (active) {
+        setSecureFileUrls(next);
+      } else {
+        objectUrls.forEach((url) => URL.revokeObjectURL(url));
+      }
+    };
+
+    if (evidenceFiles.length === 0) {
+      setSecureFileUrls({});
+      return () => {};
+    }
+
+    void loadSecureImageUrls();
+    return () => {
+      active = false;
+      objectUrls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [evidenceFiles]);
+
+  const handlePreviewEvidence = async (file: EvidenceFile) => {
+    if (secureFileUrls[file.id]) {
+      setPreviewImage(secureFileUrls[file.id]);
+      setPreviewOpen(true);
+      return;
+    }
+    try {
+      const blob = await executionsApi.getSecureFileBlob(file.file_url);
+      const objectUrl = URL.createObjectURL(blob);
+      setPreviewImage(objectUrl);
+      setPreviewOpen(true);
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || 'Error al abrir evidencia');
+    }
+  };
+
+  const handleDownloadEvidence = async (file: EvidenceFile) => {
+    try {
+      const blob = await executionsApi.getSecureFileBlob(file.file_url);
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = objectUrl;
+      a.download = file.file_name || 'evidencia';
+      a.click();
+      URL.revokeObjectURL(objectUrl);
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || 'Error al descargar evidencia');
+    }
+  };
+
+  const handleViewEvidence = async (file: any) => {
+    try {
+      const blob = await executionsApi.getSecureFileBlob(file.file_url);
+      const objectUrl = URL.createObjectURL(blob);
+      const ext = file.file_name?.split('.').pop()?.toLowerCase() || '';
+      const imageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'];
+      if (imageExts.includes(ext)) {
+        setPreviewImage(objectUrl);
+        setPreviewOpen(true);
+      } else {
+        setPdfPreviewUrl(objectUrl);
+        setPdfPreviewName(file.file_name || 'Archivo');
+        setPdfPreviewOpen(true);
+      }
+    } catch (error) {
+      message.error('Error al cargar el archivo');
+    }
+  };
 
   const formatFileSize = (bytes?: number) => {
     if (!bytes) return '';
@@ -280,13 +451,38 @@ const ExecutionPage = () => {
       dataIndex: 'execution_date',
       key: 'date',
       width: 100,
+      sorter: (a: ActivityExecution, b: ActivityExecution) => dayjs(a.execution_date).unix() - dayjs(b.execution_date).unix(),
+      filterDropdown: ({ setSelectedKeys, selectedKeys, confirm, clearFilters }: any) => (
+        <div style={{ padding: 8 }}>
+          <DatePicker
+            format="DD/MM/YYYY"
+            value={selectedKeys[0] ? dayjs(selectedKeys[0] as string) : null}
+            onChange={(date) => setSelectedKeys(date ? [date.format('YYYY-MM-DD')] : [])}
+            style={{ display: 'block', marginBottom: 8 }}
+          />
+          <Space>
+            <Button type="primary" size="small" onClick={() => confirm()}>Filtrar</Button>
+            <Button size="small" onClick={() => { clearFilters?.(); confirm(); }}>Limpiar</Button>
+          </Space>
+        </div>
+      ),
+      onFilter: (value: any, record: ActivityExecution) => record.execution_date === value,
+      filterIcon: (filtered: boolean) => <SearchOutlined style={{ color: filtered ? '#1890ff' : undefined }} />,
       render: (date: string) => dayjs(date).format('DD/MM/YY'),
     },
     {
       title: 'Actividad',
       dataIndex: 'activity_name',
       key: 'activity',
-      ellipsis: true,
+      width: 220,
+      ellipsis: { showTitle: false },
+      render: (text: string) => (
+        <Tooltip title={text} placement="topLeft">
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block', maxWidth: 200 }}>
+            {text}
+          </span>
+        </Tooltip>
+      ),
     },
     {
       title: 'TAE',
@@ -294,6 +490,24 @@ const ExecutionPage = () => {
       key: 'user',
       width: 150,
       ellipsis: true,
+      filterDropdown: ({ setSelectedKeys, selectedKeys, confirm, clearFilters }: any) => (
+        <div style={{ padding: 8 }}>
+          <Input
+            placeholder="Buscar TAE"
+            value={selectedKeys[0] as string}
+            onChange={(e) => setSelectedKeys(e.target.value ? [e.target.value] : [])}
+            onPressEnter={() => confirm()}
+            style={{ display: 'block', marginBottom: 8 }}
+          />
+          <Space>
+            <Button type="primary" size="small" onClick={() => confirm()}>Buscar</Button>
+            <Button size="small" onClick={() => { clearFilters?.(); confirm(); }}>Limpiar</Button>
+          </Space>
+        </div>
+      ),
+      onFilter: (value: any, record: ActivityExecution) =>
+        String(record.user_name || '').toLowerCase().includes(String(value).toLowerCase()),
+      filterIcon: (filtered: boolean) => <SearchOutlined style={{ color: filtered ? '#1890ff' : undefined }} />,
     },
     {
       title: 'Ciclo',
@@ -308,6 +522,13 @@ const ExecutionPage = () => {
       dataIndex: 'status',
       key: 'status',
       width: 120,
+      filters: [
+        { text: 'Completado', value: 'Completado' },
+        { text: 'Pendiente', value: 'Pendiente' },
+        { text: 'Con Novedad', value: 'Con Novedad' },
+        { text: 'Cancelado', value: 'Cancelado' },
+      ],
+      onFilter: (value: any, record: ActivityExecution) => record.status === value,
       render: (status: string) => getStatusTag(status),
     },
     {
@@ -315,7 +536,17 @@ const ExecutionPage = () => {
       dataIndex: 'approval_status',
       key: 'approval',
       width: 120,
-      render: (status: string) => getApprovalTag(status),
+      filters: [
+        { text: 'Pendiente', value: 'Pendiente' },
+        { text: 'Aprobado', value: 'Aprobado' },
+        { text: 'Rechazado', value: 'Rechazado' },
+      ],
+      onFilter: (value: any, record: ActivityExecution) => record.approval_status === value,
+      render: (status: string, record: ActivityExecution) => (
+        record.approval_status === 'Rechazado' && record.rejection_reason
+          ? <Tooltip title={`Motivo: ${record.rejection_reason}`}>{getApprovalTag(status)}</Tooltip>
+          : getApprovalTag(status)
+      ),
     },
     {
       title: 'Evidencias',
@@ -337,7 +568,7 @@ const ExecutionPage = () => {
     {
       title: 'Acciones',
       key: 'actions',
-      width: 120,
+      width: 180,
       render: (_: any, record: ActivityExecution) => (
         <Space size="small">
           {isApprover && record.approval_status === 'Pendiente' && (
@@ -360,6 +591,20 @@ const ExecutionPage = () => {
               </Tooltip>
             </>
           )}
+          {record.approval_status === 'Rechazado' && Number(record.user_id) === Number(user?.id) && (
+            <Tooltip title="Corregir y Reenviar">
+              <Button
+                type="primary"
+                ghost
+                size="small"
+                icon={<EditOutlined />}
+                onClick={() => openCorrectModal(record)}
+                style={{ borderColor: '#faad14', color: '#faad14' }}
+              >
+                Corregir
+              </Button>
+            </Tooltip>
+          )}
         </Space>
       ),
     },
@@ -373,6 +618,108 @@ const ExecutionPage = () => {
   ];
 
   const totalPending = pendingActivities.reduce((sum, a) => sum + a.pending, 0);
+  const sortedPendingActivities = [...pendingActivities].sort((a, b) => {
+    const byPending = b.pending - a.pending;
+    if (byPending !== 0) return byPending;
+    const byCompliance = a.compliance_percentage - b.compliance_percentage;
+    if (byCompliance !== 0) return byCompliance;
+    return (a.activity_code || '').localeCompare(b.activity_code || '');
+  });
+
+  const pendingColumns = [
+    {
+      title: 'Codigo',
+      dataIndex: 'activity_code',
+      key: 'code',
+      width: 110,
+      render: (code: string) => (
+        <Tooltip title={code}>
+          <Tag
+            color="blue"
+            style={{
+              maxWidth: 90,
+              display: 'inline-block',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              verticalAlign: 'middle',
+            }}
+          >
+            {code}
+          </Tag>
+        </Tooltip>
+      ),
+    },
+    {
+      title: 'Actividad',
+      dataIndex: 'activity_name',
+      key: 'activity',
+      width: 220,
+      ellipsis: { showTitle: false },
+      render: (name: string, record: PendingActivity) => (
+        <Space>
+          <Tooltip title={name} placement="topLeft">
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block', maxWidth: 180 }}>
+              {name}
+            </span>
+          </Tooltip>
+          {record.requires_evidence && (
+            <Tooltip title="Requiere evidencia">
+              <CameraOutlined style={{ color: '#faad14' }} />
+            </Tooltip>
+          )}
+        </Space>
+      ),
+    },
+    {
+      title: 'Planificado',
+      dataIndex: 'total_planned',
+      key: 'planned',
+      width: 110,
+      align: 'center' as const,
+    },
+    {
+      title: 'Ejecutado',
+      dataIndex: 'total_executed',
+      key: 'executed',
+      width: 110,
+      align: 'center' as const,
+    },
+    {
+      title: 'Pendiente',
+      dataIndex: 'pending',
+      key: 'pending',
+      width: 120,
+      align: 'center' as const,
+      sorter: (a: PendingActivity, b: PendingActivity) => a.pending - b.pending,
+      defaultSortOrder: 'descend' as const,
+      render: (value: number) => (
+        <Tag color={value >= 5 ? 'red' : value >= 2 ? 'orange' : 'gold'}>{value}</Tag>
+      ),
+    },
+    {
+      title: 'Avance',
+      key: 'compliance',
+      width: 180,
+      render: (_: unknown, record: PendingActivity) => (
+        <Progress
+          percent={record.compliance_percentage}
+          size="small"
+          format={() => `${record.total_executed}/${record.total_planned}`}
+        />
+      ),
+    },
+    {
+      title: 'Accion',
+      key: 'action',
+      width: 130,
+      render: (_: unknown, record: PendingActivity) => (
+        <Button type="primary" size="small" icon={<CheckOutlined />} onClick={() => openQuickModal(record)}>
+          Registrar
+        </Button>
+      ),
+    },
+  ];
 
   const uploadProps = {
     multiple: true,
@@ -384,15 +731,28 @@ const ExecutionPage = () => {
   return (
     <div>
       {/* Header */}
-      <div style={{ marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
         <div>
-          <Title level={3} style={{ margin: 0 }}>
+          <Title level={3} style={{ margin: 0, flexShrink: 0 }}>
             <CalendarOutlined style={{ marginRight: 8 }} />
             Registro de Ejecuciones
           </Title>
           <Text type="secondary">Gestiona y registra las actividades ejecutadas</Text>
         </div>
         <Space>
+          {isApprover && taeUsers.length > 0 && (
+            <Select
+              value={selectedTaeId}
+              onChange={(val) => setSelectedTaeId(val)}
+              placeholder="Filtrar por TAE"
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              style={{ width: 220 }}
+              suffixIcon={<TeamOutlined />}
+              options={taeUsers.map((u: any) => ({ value: u.id, label: u.full_name || u.email }))}
+            />
+          )}
           <Select value={month} onChange={setMonth} options={months} style={{ width: 140 }} />
           <Select
             value={year}
@@ -400,7 +760,14 @@ const ExecutionPage = () => {
             options={[{ value: 2024, label: '2024' }, { value: 2025, label: '2025' }, { value: 2026, label: '2026' }]}
             style={{ width: 100 }}
           />
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setModalOpen(true)}>
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => {
+              form.setFieldValue('execution_date', getSelectedExecutionDate());
+              setModalOpen(true);
+            }}
+          >
             Nueva Ejecución
           </Button>
         </Space>
@@ -451,48 +818,17 @@ const ExecutionPage = () => {
             children: (
               <Card>
                 {pendingActivities.length > 0 ? (
-                  <List
-                    grid={{ gutter: 16, xs: 1, sm: 2, md: 3, lg: 4 }}
-                    dataSource={pendingActivities}
-                    renderItem={(item) => (
-                      <List.Item>
-                        <Card
-                          size="small"
-                          hoverable
-                          onClick={() => openQuickModal(item)}
-                          style={{ cursor: 'pointer' }}
-                          actions={[
-                            <Button type="primary" size="small" icon={<CheckOutlined />}
-                              onClick={(e) => { e.stopPropagation(); openQuickModal(item); }}>
-                              Registrar
-                            </Button>
-                          ]}
-                        >
-                          <Card.Meta
-                            title={
-                              <Space>
-                                <Tag color="blue">{item.activity_code}</Tag>
-                                {item.requires_evidence && (
-                                  <Tooltip title="Requiere evidencia">
-                                    <CameraOutlined style={{ color: '#faad14' }} />
-                                  </Tooltip>
-                                )}
-                              </Space>
-                            }
-                            description={
-                              <div>
-                                <Text ellipsis style={{ display: 'block', marginBottom: 8 }}>{item.activity_name}</Text>
-                                <Progress percent={item.compliance_percentage} size="small"
-                                  format={() => `${item.total_executed}/${item.total_planned}`} />
-                                <Text type="secondary" style={{ fontSize: 12 }}>
-                                  Pendientes: <Text strong style={{ color: '#ff4d4f' }}>{item.pending}</Text>
-                                </Text>
-                              </div>
-                            }
-                          />
-                        </Card>
-                      </List.Item>
-                    )}
+                  <Table
+                    dataSource={sortedPendingActivities}
+                    columns={pendingColumns}
+                    rowKey="planned_activity_id"
+                    size="small"
+                    scroll={{ x: 980 }}
+                    pagination={{
+                      defaultPageSize: 10,
+                      showSizeChanger: true,
+                      pageSizeOptions: ['10', '20', '50'],
+                    }}
                   />
                 ) : (
                   <Empty description="No tienes actividades pendientes para este mes" image={Empty.PRESENTED_IMAGE_SIMPLE} />
@@ -505,7 +841,7 @@ const ExecutionPage = () => {
             label: <span><CalendarOutlined /> Historial <Badge count={executions.length} style={{ marginLeft: 8, backgroundColor: '#1890ff' }} /></span>,
             children: (
               <Card>
-                <Table dataSource={executions} columns={columns} rowKey="id" loading={loading}
+                <Table dataSource={executions} columns={columns} rowKey="id" loading={loading} scroll={{ x: 700 }}
                   pagination={{ defaultPageSize: 15, showSizeChanger: true, pageSizeOptions: ['15', '20', '50', '100'] }} size="small" />
               </Card>
             ),
@@ -516,9 +852,35 @@ const ExecutionPage = () => {
             disabled: !isApprover,
             children: (
               <Card>
-                <Table dataSource={executions.filter(e => e.approval_status === 'Pendiente')} columns={columns}
+                <Table dataSource={executions.filter(e => e.approval_status === 'Pendiente')} columns={columns} scroll={{ x: 700 }}
                   rowKey="id" loading={loading} pagination={{ defaultPageSize: 15, showSizeChanger: true, pageSizeOptions: ['15', '20', '50', '100'] }} size="small"
                   locale={{ emptyText: 'No hay ejecuciones pendientes de aprobación' }} />
+              </Card>
+            ),
+          },
+          {
+            key: 'rejected',
+            label: (
+              <span>
+                <CloseOutlined /> Rechazadas{' '}
+                <Badge
+                  count={executions.filter(e => e.approval_status === 'Rechazado').length}
+                  style={{ marginLeft: 8, backgroundColor: '#ff4d4f' }}
+                />
+              </span>
+            ),
+            children: (
+              <Card>
+                <Table
+                  dataSource={executions.filter(e => e.approval_status === 'Rechazado')}
+                  columns={columns}
+                  rowKey="id"
+                  loading={loading}
+                  scroll={{ x: 700 }}
+                  pagination={{ defaultPageSize: 15 }}
+                  size="small"
+                  locale={{ emptyText: 'No hay ejecuciones rechazadas' }}
+                />
               </Card>
             ),
           },
@@ -547,8 +909,12 @@ const ExecutionPage = () => {
           </Form.Item>
           <Row gutter={16}>
             <Col span={12}>
-              <Form.Item name="execution_date" label="Fecha de Ejecución" rules={[{ required: true }]} initialValue={dayjs()}>
-                <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
+              <Form.Item name="execution_date" label="Fecha de Ejecución" rules={[{ required: true }]} initialValue={getSelectedExecutionDate()}>
+                <DatePicker
+                  style={{ width: '100%' }}
+                  format="DD/MM/YYYY"
+                  disabledDate={(current) => current.year() !== year || current.month() + 1 !== month}
+                />
               </Form.Item>
             </Col>
             <Col span={12}>
@@ -652,10 +1018,12 @@ const ExecutionPage = () => {
         width={600}
       >
         <div style={{ marginBottom: 16 }}>
-          <Upload accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.mp4,.mov,.avi"
-            showUploadList={false} beforeUpload={handleUploadToExisting}>
-            <Button icon={<UploadOutlined />} size="small">Agregar Evidencia</Button>
-          </Upload>
+          {!isApprover && (
+            <Upload accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.mp4,.mov,.avi"
+              showUploadList={false} beforeUpload={handleUploadToExisting}>
+              <Button icon={<UploadOutlined />} size="small">Agregar Evidencia</Button>
+            </Upload>
+          )}
         </div>
 
         {evidenceLoading ? (
@@ -671,23 +1039,33 @@ const ExecutionPage = () => {
                   isImageFile(file.file_type) ? (
                     <Tooltip title="Ver imagen" key="preview">
                       <Button type="link" size="small" icon={<EyeOutlined />}
-                        onClick={() => { setPreviewImage(file.file_url); setPreviewOpen(true); }} />
+                        onClick={() => void handlePreviewEvidence(file)} />
                     </Tooltip>
                   ) : null,
-                  <Tooltip title="Descargar" key="download">
-                    <Button type="link" size="small" icon={<FileTextOutlined />}
-                      onClick={() => window.open(file.file_url, '_blank')} />
-                  </Tooltip>,
-                  <Tooltip title="Eliminar" key="delete">
-                    <Button type="link" danger size="small" icon={<DeleteOutlined />}
-                      onClick={() => handleDeleteFile(file.id)} />
-                  </Tooltip>,
+                  !isImageFile(file.file_type) ? (
+                    <Tooltip title="Ver archivo" key="view-file">
+                      <Button type="link" size="small" icon={<EyeOutlined />}
+                        onClick={() => void handleViewEvidence(file)} />
+                    </Tooltip>
+                  ) : null,
+                  !isApprover ? (
+                    <Tooltip title="Descargar" key="download">
+                      <Button type="link" size="small" icon={<FileTextOutlined />}
+                        onClick={() => void handleDownloadEvidence(file)} />
+                    </Tooltip>
+                  ) : null,
+                  !isApprover ? (
+                    <Tooltip title="Eliminar" key="delete">
+                      <Button type="link" danger size="small" icon={<DeleteOutlined />}
+                        onClick={() => handleDeleteFile(file.id)} />
+                    </Tooltip>
+                  ) : null,
                 ].filter(Boolean)}
               >
                 <List.Item.Meta
                   avatar={
                     isImageFile(file.file_type) ? (
-                      <Image src={file.file_url} width={48} height={48}
+                      <Image src={secureFileUrls[file.id]} width={48} height={48}
                         style={{ objectFit: 'cover', borderRadius: 4 }} preview={false}
                         fallback="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mN88P/BfwAJhAPjM9uBIwAAAABJRU5ErkJggg==" />
                     ) : (
@@ -712,9 +1090,130 @@ const ExecutionPage = () => {
         )}
       </Modal>
 
+      {/* ===== MODAL CORRECCIÓN DE RECHAZADAS ===== */}
+      <Modal
+        title={
+          <Space>
+            <EditOutlined style={{ color: '#faad14' }} />
+            <span>Corregir y Reenviar</span>
+          </Space>
+        }
+        open={correctModalOpen}
+        onCancel={() => {
+          setCorrectModalOpen(false);
+          setSelectedExecution(null);
+          correctForm.resetFields();
+          setCorrectFileList([]);
+        }}
+        onOk={() => correctForm.submit()}
+        okText="Corregir y Reenviar"
+        cancelText="Cancelar"
+        width={500}
+      >
+        {selectedExecution && (
+          <>
+            <Card
+              size="small"
+              style={{ marginBottom: 16, backgroundColor: '#fff2e8', borderColor: '#ffbb96' }}
+            >
+              <Space direction="vertical" size={4}>
+                <Text strong>{selectedExecution.activity_name}</Text>
+                <Text type="secondary">
+                  Fecha: {dayjs(selectedExecution.execution_date).format('DD/MM/YYYY')}
+                </Text>
+                {selectedExecution.rejection_reason && (
+                  <div>
+                    <Text type="danger" strong>Motivo del rechazo: </Text>
+                    <Text type="danger">{selectedExecution.rejection_reason}</Text>
+                  </div>
+                )}
+              </Space>
+            </Card>
+            <Form form={correctForm} layout="vertical" onFinish={handleCorrectExecution}>
+              <Form.Item name="status" label="Estado" rules={[{ required: true }]}>
+                <Select
+                  options={[
+                    { value: 'Completado', label: 'Completado' },
+                    { value: 'Pendiente', label: 'Pendiente' },
+                    { value: 'Con Novedad', label: 'Con Novedad' },
+                  ]}
+                />
+              </Form.Item>
+              <Form.Item name="observation" label="Observación corregida">
+                <TextArea rows={3} placeholder="Describe la corrección..." />
+              </Form.Item>
+              <Form.Item name="novelty_description" label="Descripción de novedad">
+                <TextArea rows={2} placeholder="Detalle de novedad..." />
+              </Form.Item>
+              <Form.Item
+                label={
+                  <Space>
+                    <CameraOutlined />
+                    <span>Adjuntar nuevas evidencias (opcional)</span>
+                  </Space>
+                }
+              >
+                <Upload
+                  {...uploadProps}
+                  fileList={correctFileList}
+                  onChange={({ fileList: fl }) => setCorrectFileList(fl)}
+                >
+                  <Button icon={<UploadOutlined />}>Adjuntar Evidencia</Button>
+                </Upload>
+                <Text type="secondary" style={{ fontSize: 11 }}>
+                  Máx. 10MB por archivo. Formatos: imágenes, PDF, documentos Office, videos.
+                </Text>
+              </Form.Item>
+            </Form>
+          </>
+        )}
+      </Modal>
+
       {/* Preview de imagen */}
-      <Image width={0} height={0} style={{ display: 'none' }} src={previewImage}
-        preview={{ visible: previewOpen, onVisibleChange: (vis) => setPreviewOpen(vis) }} />
+      <Image
+        style={{ display: 'none' }}
+        src={previewImage}
+        preview={{
+          visible: previewOpen,
+          onVisibleChange: (v) => setPreviewOpen(v),
+          toolbarRender: (_, { actions: { onZoomOut, onZoomIn, onRotateLeft, onRotateRight } }) => (
+            <div style={{ display: 'flex', gap: 12, padding: '0 16px', alignItems: 'center', background: 'rgba(0,0,0,0.5)', borderRadius: 8 }}>
+              <span style={{ cursor: 'pointer', color: '#fff', fontSize: 18 }} onClick={onZoomOut}>🔍−</span>
+              <span style={{ cursor: 'pointer', color: '#fff', fontSize: 18 }} onClick={onZoomIn}>🔍+</span>
+              <span style={{ cursor: 'pointer', color: '#fff', fontSize: 18 }} onClick={onRotateLeft}>↺</span>
+              <span style={{ cursor: 'pointer', color: '#fff', fontSize: 18 }} onClick={onRotateRight}>↻</span>
+            </div>
+          ),
+        }}
+      />
+
+      {/* Modal de previsualización de archivos (PDF, documentos) */}
+      <Modal
+        title={
+          <Space>
+            <EyeOutlined />
+            <span>{pdfPreviewName}</span>
+          </Space>
+        }
+        open={pdfPreviewOpen}
+        onCancel={() => {
+          setPdfPreviewOpen(false);
+          if (pdfPreviewUrl) URL.revokeObjectURL(pdfPreviewUrl);
+          setPdfPreviewUrl(null);
+        }}
+        footer={null}
+        width="80vw"
+        style={{ top: 20 }}
+        styles={{ body: { padding: 0, height: '75vh' } }}
+      >
+        {pdfPreviewUrl && (
+          <iframe
+            src={`${pdfPreviewUrl}#toolbar=0&navpanes=0&scrollbar=1`}
+            style={{ width: '100%', height: '100%', border: 'none', minHeight: '75vh' }}
+            title={pdfPreviewName}
+          />
+        )}
+      </Modal>
     </div>
   );
 };

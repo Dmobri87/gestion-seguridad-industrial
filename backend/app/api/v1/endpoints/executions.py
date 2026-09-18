@@ -1,9 +1,9 @@
 import os
 import re
 import uuid
-import shutil
 import logging
 from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import and_
 from typing import List, Optional
@@ -14,10 +14,12 @@ from app.core.dependencies import get_current_user, require_roles
 from app.models.user import User, UserRole
 from app.models.planning import PlannedActivity, MonthlyPlan
 from app.models.execution import ActivityExecution, ExecutionFile, ExecutionHistory, ExecutionStatus, ApprovalStatus
+from app.services.compliance_service import recalculate_plan_compliance
 from app.schemas.execution import (
-    ActivityExecutionResponse, ActivityExecutionCreateV1, ActivityExecutionUpdateV1,
-    ActivityExecutionWithDetails, ExecutionFileResponse, ExecutionFileCreate,
-    ExecutionApprovalRequest, ExecutionApprovalResponse, ExecutionStats
+    ActivityExecutionResponse, ActivityExecutionCreateV1,
+    ActivityExecutionWithDetails, ExecutionFileResponse,
+    ExecutionApprovalRequest, ExecutionApprovalResponse, ExecutionStats,
+    ExecutionCorrectionRequest,
 )
 
 logger = logging.getLogger(__name__)
@@ -66,6 +68,53 @@ def _validate_magic_bytes(content: bytes, extension: str) -> bool:
     return any(content.startswith(sig) for sig in signatures)
 
 
+def _apply_role_filter(query, current_user: User, db: Session):
+    """
+    Aplica filtrado por rol a una query de ActivityExecution.
+    - TAE/PSE: solo sus propias ejecuciones
+    - Coordinador: ejecuciones de TAEs cuyos planes creó él
+    - Supervisor: ejecuciones de TAEs subordinados (supervisor_id)
+    - Administrador: sin filtro adicional
+    """
+    role = current_user.role
+
+    if role in (UserRole.TAE.value, UserRole.PSE.value):
+        query = query.filter(ActivityExecution.user_id == current_user.id)
+
+    elif role == UserRole.COORDINATOR.value:
+        # TAEs cuyos planes fueron creados por este coordinador
+        from sqlalchemy import select
+        subordinate_ids = (
+            select(MonthlyPlan.user_id)
+            .where(MonthlyPlan.created_by == current_user.id)
+            .distinct()
+        )
+        query = query.filter(ActivityExecution.user_id.in_(subordinate_ids))
+
+    elif role == UserRole.SUPERVISOR.value:
+        # TAEs que reportan a este supervisor
+        from sqlalchemy import select
+        subordinate_ids = (
+            select(User.id)
+            .where(User.supervisor_id == current_user.id)
+        )
+        query = query.filter(ActivityExecution.user_id.in_(subordinate_ids))
+
+    # Administrador: sin filtro adicional
+
+    return query
+
+
+def _enforce_execution_file_access(execution: ActivityExecution, current_user: User):
+    """Restringe acceso a evidencias para roles operativos al dueño de la ejecución."""
+    if current_user.role in (UserRole.TAE.value, UserRole.PSE.value):
+        if execution.user_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tienes acceso a los archivos de esta ejecución"
+            )
+
+
 @router.get("/", response_model=List[ActivityExecutionWithDetails])
 async def get_executions(
     year: int = Query(..., ge=2020, le=2100),
@@ -74,11 +123,11 @@ async def get_executions(
     status: Optional[str] = None,
     approval_status: Optional[str] = None,
     skip: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=100),
+    limit: int = Query(100, ge=1, le=500),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Listar ejecuciones con filtros."""
+    """Listar ejecuciones con filtros. Resultados filtrados según rol del usuario."""
     query = db.query(ActivityExecution).options(
         joinedload(ActivityExecution.user),
         joinedload(ActivityExecution.planned_activity).joinedload(PlannedActivity.activity_template)
@@ -87,6 +136,34 @@ async def get_executions(
     # Filtrar por organización
     if current_user.organization_id:
         query = query.filter(ActivityExecution.organization_id == current_user.organization_id)
+
+    # Filtrado por rol
+    query = _apply_role_filter(query, current_user, db)
+
+    # Fix C-1: Validate user_id query param against the current user's accessible scope
+    if user_id is not None:
+        role = current_user.role
+        if role in (UserRole.TAE.value, UserRole.PSE.value):
+            # TAE/PSE can only query their own executions
+            if user_id != current_user.id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="No tienes permiso para ver ejecuciones de otro usuario"
+                )
+        elif role == UserRole.COORDINATOR.value:
+            # Coordinator can only query users whose plans they created
+            from sqlalchemy import select as sa_select
+            allowed_ids = db.execute(
+                sa_select(MonthlyPlan.user_id)
+                .where(MonthlyPlan.created_by == current_user.id)
+                .distinct()
+            ).scalars().all()
+            if user_id not in allowed_ids:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="No tienes autoridad sobre el usuario indicado"
+                )
+        # Admin/Supervisor: allow any user_id within org (no extra check needed)
 
     # Filtro por fecha
     start_date = date(year, month, 1)
@@ -144,12 +221,20 @@ async def create_execution(
             detail="Actividad planeada no encontrada"
         )
 
+    # Fix H-3: For TAE/PSE, always force user_id to current user — ignore any client-supplied value.
+    # Only Admin/Coordinator/Supervisor are allowed to submit on behalf of another user.
+    if current_user.role in (UserRole.TAE.value, UserRole.PSE.value):
+        resolved_user_id = current_user.id
+    else:
+        resolved_user_id = execution_data.user_id or current_user.id
+
     # Crear ejecución
+    cycle_number = max(1, min(execution_data.cycle_number, 3))
     execution = ActivityExecution(
         planned_activity_id=execution_data.planned_activity_id,
-        user_id=execution_data.user_id or current_user.id,
+        user_id=resolved_user_id,
         execution_date=execution_data.execution_date,
-        cycle_number=execution_data.cycle_number,
+        cycle_number=cycle_number,
         status=execution_data.status,
         observation=execution_data.observation,
         novelty_description=execution_data.novelty_description,
@@ -161,20 +246,17 @@ async def create_execution(
         edit_deadline=datetime.utcnow() + timedelta(hours=24)
     )
 
+    # Capturar plan_id ANTES del commit (después del commit, 'planned' queda expirado)
+    monthly_plan_id = planned.monthly_plan_id
+
     db.add(execution)
-
-    # Actualizar contadores
-    _update_execution_counts(planned, execution_data.cycle_number, execution_data.quantity)
-    _recalculate_activity_compliance(planned)
-
-    # Actualizar plan
-    plan = planned.monthly_plan
-    plan.total_executed += execution_data.quantity
-    if plan.total_planned > 0:
-        plan.compliance_percentage = (plan.total_executed / plan.total_planned) * 100
-
     db.commit()
     db.refresh(execution)
+
+    try:
+        recalculate_plan_compliance(db, monthly_plan_id)
+    except Exception as e:
+        logger.error(f"recalculate_plan_compliance falló para plan {monthly_plan_id}: {e}")
 
     return execution
 
@@ -187,8 +269,8 @@ def _update_execution_counts(planned: PlannedActivity, cycle: int, quantity: int
         planned.cycle_2_executed += quantity
     elif cycle == 3:
         planned.cycle_3_executed += quantity
-    elif cycle == 4:
-        planned.cycle_4_executed += quantity
+    else:
+        pass
     planned.total_executed += quantity
 
 
@@ -200,18 +282,22 @@ def _recalculate_activity_compliance(planned: PlannedActivity):
 
 @router.get("/my-today")
 async def get_my_today_activities(
+    year: Optional[int] = None,
+    month: Optional[int] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Obtener actividades pendientes del usuario para hoy."""
+    """Obtener actividades pendientes del usuario para el mes/año indicado."""
     today = date.today()
+    target_year = year or today.year
+    target_month = month or today.month
 
-    # Obtener plan actual del usuario
+    # Obtener plan del usuario para el mes indicado (cualquier estado)
     plan = db.query(MonthlyPlan).filter(
         and_(
             MonthlyPlan.user_id == current_user.id,
-            MonthlyPlan.year == today.year,
-            MonthlyPlan.month == today.month
+            MonthlyPlan.year == target_year,
+            MonthlyPlan.month == target_month
         )
     ).first()
 
@@ -226,22 +312,168 @@ async def get_my_today_activities(
         PlannedActivity.is_active == True
     ).all()
 
+    # Contar ejecuciones reales desde BD (no los campos cacheados que pueden estar desactualizados)
+    activity_ids = [pa.id for pa in planned_activities]
+    exec_counts: dict = {}
+    if activity_ids:
+        from sqlalchemy import func as sqlfunc
+        rows = (
+            db.query(
+                ActivityExecution.planned_activity_id,
+                sqlfunc.coalesce(
+                    sqlfunc.sum(sqlfunc.coalesce(ActivityExecution.quantity, 1)), 0
+                ).label("total_qty"),
+            )
+            .filter(
+                ActivityExecution.planned_activity_id.in_(activity_ids),
+                ActivityExecution.approval_status != ApprovalStatus.REJECTED.value,
+            )
+            .group_by(ActivityExecution.planned_activity_id)
+            .all()
+        )
+        exec_counts = {row.planned_activity_id: int(row.total_qty) for row in rows}
+
     result = []
     for pa in planned_activities:
-        pending = pa.total_planned - pa.total_executed
+        total_planned = (
+            (pa.cycle_1_planned or 0)
+            + (pa.cycle_2_planned or 0)
+            + (pa.cycle_3_planned or 0)
+        )
+        if total_planned == 0:
+            continue
+        total_executed = exec_counts.get(pa.id, 0)
+        pending = total_planned - total_executed
         if pending > 0:
+            compliance = round((total_executed / total_planned) * 100, 2)
             result.append({
                 "planned_activity_id": pa.id,
                 "activity_name": pa.activity_template.name if pa.activity_template else "",
                 "activity_code": pa.activity_template.code if pa.activity_template else "",
-                "total_planned": pa.total_planned,
-                "total_executed": pa.total_executed,
+                "total_planned": total_planned,
+                "total_executed": total_executed,
                 "pending": pending,
-                "compliance_percentage": pa.compliance_percentage,
-                "requires_evidence": pa.activity_template.requires_evidence if pa.activity_template else False
+                "compliance_percentage": compliance,
+                "requires_evidence": pa.requires_evidence,
             })
 
     return {"activities": result, "plan_id": plan.id}
+
+
+@router.get("/my-pending-all")
+async def get_all_my_pending_activities(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Obtener TODAS las actividades pendientes del usuario en todos sus planes."""
+    plans = db.query(MonthlyPlan).filter(
+        MonthlyPlan.user_id == current_user.id,
+        MonthlyPlan.status.in_(["Borrador", "Aprobado", "En Progreso"])
+    ).all()
+
+    result = []
+    for plan in plans:
+        planned_activities = db.query(PlannedActivity).options(
+            joinedload(PlannedActivity.activity_template)
+        ).filter(
+            PlannedActivity.monthly_plan_id == plan.id,
+            PlannedActivity.is_active == True
+        ).all()
+
+        for pa in planned_activities:
+            pending = pa.total_planned - pa.total_executed
+            if pending > 0:
+                result.append({
+                    "planned_activity_id": pa.id,
+                    "activity_name": pa.activity_template.name if pa.activity_template else "",
+                    "activity_code": pa.activity_template.code if pa.activity_template else "",
+                    "total_planned": pa.total_planned,
+                    "total_executed": pa.total_executed,
+                    "pending": pending,
+                    "compliance_percentage": pa.compliance_percentage,
+                    "requires_evidence": pa.requires_evidence,
+                    "month": plan.month,
+                    "year": plan.year,
+                })
+
+    return {"activities": result, "total_pending": len(result)}
+
+
+@router.get("/stats", response_model=ExecutionStats)
+async def get_execution_stats(
+    year: int = Query(..., ge=2020, le=2100),
+    month: int = Query(..., ge=1, le=12),
+    user_id: Optional[int] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Obtener estadísticas de ejecuciones. Filtradas según rol del usuario."""
+    start_date = date(year, month, 1)
+    end_date = date(year, month + 1, 1) if month < 12 else date(year + 1, 1, 1)
+
+    query = db.query(ActivityExecution).filter(
+        and_(
+            ActivityExecution.execution_date >= start_date,
+            ActivityExecution.execution_date < end_date
+        )
+    )
+
+    if current_user.organization_id:
+        query = query.filter(ActivityExecution.organization_id == current_user.organization_id)
+
+    # Filtrado por rol
+    query = _apply_role_filter(query, current_user, db)
+
+    if user_id:
+        query = query.filter(ActivityExecution.user_id == user_id)
+
+    executions = query.all()
+
+    return ExecutionStats(
+        total_executions=len(executions),
+        completed=sum(1 for e in executions if e.status == ExecutionStatus.COMPLETED.value),
+        pending=sum(1 for e in executions if e.status == ExecutionStatus.PENDING.value),
+        with_novelty=sum(1 for e in executions if e.status == ExecutionStatus.WITH_NOVELTY.value),
+        pending_approval=sum(1 for e in executions if e.approval_status == ApprovalStatus.PENDING.value),
+        approved=sum(1 for e in executions if e.approval_status == ApprovalStatus.APPROVED.value),
+        rejected=sum(1 for e in executions if e.approval_status == ApprovalStatus.REJECTED.value)
+    )
+
+
+@router.get("/files/serve/{filename}")
+async def serve_evidence_file(
+    filename: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Servir archivo de evidencia con autenticación."""
+    if not re.match(r'^[a-f0-9]{32}\.[a-z0-9]+$', filename):
+        raise HTTPException(status_code=400, detail="Nombre de archivo inválido")
+
+    file_path = os.path.join(UPLOAD_DIR, "evidences", filename)
+    real_upload = os.path.realpath(os.path.join(UPLOAD_DIR, "evidences"))
+    real_file = os.path.realpath(file_path)
+
+    if not real_file.startswith(real_upload):
+        raise HTTPException(status_code=400, detail="Ruta inválida")
+
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Archivo no encontrado")
+
+    db_file = db.query(ExecutionFile).filter(
+        ExecutionFile.file_url == f"/uploads/evidences/{filename}"
+    ).first()
+    if not db_file:
+        raise HTTPException(status_code=404, detail="Archivo no encontrado")
+
+    execution = db.query(ActivityExecution).filter(
+        ActivityExecution.id == db_file.execution_id
+    ).first()
+    if not execution:
+        raise HTTPException(status_code=404, detail="Ejecución no encontrada")
+    _enforce_execution_file_access(execution, current_user)
+
+    return FileResponse(file_path)
 
 
 @router.post("/{execution_id}/approve", response_model=ExecutionApprovalResponse)
@@ -257,6 +489,16 @@ async def approve_execution(
     if not execution:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ejecución no encontrada")
 
+    if approval_data.approved and execution.planned_activity and execution.planned_activity.requires_evidence:
+        files_count = db.query(ExecutionFile.id).filter(
+            ExecutionFile.execution_id == execution.id
+        ).count()
+        if files_count == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Esta actividad requiere evidencia antes de aprobarse"
+            )
+
     execution.approval_status = ApprovalStatus.APPROVED.value if approval_data.approved else ApprovalStatus.REJECTED.value
     execution.approved_by = current_user.id
     execution.approved_at = datetime.utcnow()
@@ -264,6 +506,8 @@ async def approve_execution(
         execution.rejection_reason = approval_data.rejection_reason
 
     db.commit()
+    if execution.planned_activity:
+        recalculate_plan_compliance(db, execution.planned_activity.monthly_plan_id)
 
     return ExecutionApprovalResponse(
         execution_id=execution.id,
@@ -274,41 +518,81 @@ async def approve_execution(
     )
 
 
-@router.get("/stats", response_model=ExecutionStats)
-async def get_execution_stats(
-    year: int = Query(..., ge=2020, le=2100),
-    month: int = Query(..., ge=1, le=12),
-    user_id: Optional[int] = None,
+@router.put("/{execution_id}/correct", response_model=ActivityExecutionResponse)
+async def correct_execution(
+    execution_id: int,
+    correction_data: ExecutionCorrectionRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Obtener estadísticas de ejecuciones."""
-    start_date = date(year, month, 1)
-    end_date = date(year, month + 1, 1) if month < 12 else date(year + 1, 1, 1)
+    """
+    Corregir y reenviar una ejecución rechazada.
+    Solo el TAE que creó la ejecución puede corregirla.
+    """
+    execution = db.query(ActivityExecution).filter(
+        ActivityExecution.id == execution_id
+    ).first()
 
-    query = db.query(ActivityExecution).filter(
-        and_(
-            ActivityExecution.execution_date >= start_date,
-            ActivityExecution.execution_date < end_date
+    if not execution:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Ejecución no encontrada"
         )
+    _enforce_execution_file_access(execution, current_user)
+
+    # Solo el creador puede corregir
+    if execution.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo el TAE que creó la ejecución puede corregirla"
+        )
+
+    # Solo se pueden corregir ejecuciones rechazadas
+    if execution.approval_status != ApprovalStatus.REJECTED.value:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Solo se pueden corregir ejecuciones con estado Rechazado"
+        )
+
+    # Aplicar correcciones
+    changes = []
+    for field in ("observation", "novelty_description", "status", "location", "quantity"):
+        new_value = getattr(correction_data, field, None)
+        if new_value is not None:
+            old_value = getattr(execution, field)
+            setattr(execution, field, new_value)
+            changes.append(f"{field}: {old_value} -> {new_value}")
+
+    # Reenviar para aprobación
+    execution.approval_status = ApprovalStatus.PENDING.value
+    execution.rejection_reason = None
+    execution.is_editable = True
+    execution.approved_by = None
+    execution.approved_at = None
+
+    # Registrar en historial
+    history_entry = ExecutionHistory(
+        execution_id=execution.id,
+        action="CORRECT",
+        field_changed=", ".join(changes) if changes else "resubmit",
+        old_value=ApprovalStatus.REJECTED.value,
+        new_value=ApprovalStatus.PENDING.value,
+        changed_by=current_user.id,
+        reason="Corrección y reenvío de ejecución rechazada",
+    )
+    db.add(history_entry)
+
+    db.commit()
+    db.refresh(execution)
+    if execution.planned_activity:
+        recalculate_plan_compliance(db, execution.planned_activity.monthly_plan_id)
+
+    logger.info(
+        "Ejecución %s corregida y reenviada por usuario %s",
+        execution_id, current_user.email,
     )
 
-    if current_user.organization_id:
-        query = query.filter(ActivityExecution.organization_id == current_user.organization_id)
-    if user_id:
-        query = query.filter(ActivityExecution.user_id == user_id)
-
-    executions = query.all()
-
-    return ExecutionStats(
-        total_executions=len(executions),
-        completed=sum(1 for e in executions if e.status == ExecutionStatus.COMPLETED.value),
-        pending=sum(1 for e in executions if e.status == ExecutionStatus.PENDING.value),
-        with_novelty=sum(1 for e in executions if e.status == ExecutionStatus.WITH_NOVELTY.value),
-        pending_approval=sum(1 for e in executions if e.approval_status == ApprovalStatus.PENDING.value),
-        approved=sum(1 for e in executions if e.approval_status == ApprovalStatus.APPROVED.value),
-        rejected=sum(1 for e in executions if e.approval_status == ApprovalStatus.REJECTED.value)
-    )
+    return execution
 
 
 # ==========================================
@@ -337,6 +621,9 @@ async def upload_execution_file(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Ejecución no encontrada"
         )
+
+    # Fix H-4: Enforce access control before any file processing
+    _enforce_execution_file_access(execution, current_user)
 
     # Sanitizar y validar nombre de archivo
     original_filename = _sanitize_filename(file.filename or "archivo")
@@ -463,6 +750,7 @@ async def get_execution_files(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Ejecución no encontrada"
         )
+    _enforce_execution_file_access(execution, current_user)
 
     files = db.query(ExecutionFile).filter(
         ExecutionFile.execution_id == execution_id
@@ -479,6 +767,16 @@ async def delete_execution_file(
     db: Session = Depends(get_db)
 ):
     """Eliminar un archivo de evidencia."""
+    execution = db.query(ActivityExecution).filter(
+        ActivityExecution.id == execution_id
+    ).first()
+    if not execution:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Ejecución no encontrada"
+        )
+    _enforce_execution_file_access(execution, current_user)
+
     db_file = db.query(ExecutionFile).filter(
         ExecutionFile.id == file_id,
         ExecutionFile.execution_id == execution_id

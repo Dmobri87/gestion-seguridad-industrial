@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 from pydantic import BaseModel, ConfigDict
@@ -117,6 +117,9 @@ async def get_work_group(
 
     if not group:
         raise HTTPException(status_code=404, detail="Grupo no encontrado")
+
+    if group.organization_id and current_user.organization_id and group.organization_id != current_user.organization_id:
+        raise HTTPException(status_code=403, detail="No autorizado")
 
     members = [
         WorkGroupMember(

@@ -79,7 +79,7 @@ class ActivityExecutionCreateV1(ActivityExecutionBase):
     """Schema para crear ejecución (API v1)."""
     planned_activity_id: int
     user_id: int
-    organization_id: int
+    organization_id: Optional[int] = None
 
 
 class ActivityExecutionUpdateV1(BaseModel):
@@ -103,7 +103,7 @@ class ActivityExecutionResponse(ActivityExecutionBase):
     rejection_reason: Optional[str] = None
     is_editable: bool
     edit_deadline: Optional[datetime] = None
-    organization_id: int
+    organization_id: Optional[int] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
 
@@ -153,6 +153,15 @@ class ExecutionFileResponse(ExecutionFileBase):
 # ==========================================
 # APROBACIÓN
 # ==========================================
+
+class ExecutionCorrectionRequest(BaseModel):
+    """Schema para corregir y reenviar una ejecución rechazada."""
+    observation: Optional[str] = None
+    novelty_description: Optional[str] = None
+    status: Optional[str] = None
+    location: Optional[str] = None
+    quantity: Optional[int] = None
+
 
 class ExecutionApprovalRequest(BaseModel):
     """Schema para aprobar/rechazar ejecución."""

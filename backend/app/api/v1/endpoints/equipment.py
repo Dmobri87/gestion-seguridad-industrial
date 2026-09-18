@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import date, datetime
@@ -278,6 +278,8 @@ async def get_equipment_detail(
     equipment = db.query(Equipment).filter(Equipment.id == equipment_id).first()
     if not equipment:
         raise HTTPException(status_code=404, detail="Equipo no encontrado")
+    if equipment.organization_id and current_user.organization_id and equipment.organization_id != current_user.organization_id:
+        raise HTTPException(status_code=403, detail="No autorizado")
     return _build_equipment_response(equipment, db)
 
 

@@ -62,7 +62,7 @@ El sistema gestiona integralmente las actividades de seguridad industrial, salud
 │                                                      │
 │  1. PLANIFICACIÓN                                   │
 │     └─ Plan mensual por usuario                     │
-│     └─ Ciclos semanales (1-4)                       │
+│     └─ Ciclos de planificación (1-3)                │
 │     └─ Metas por actividad                          │
 │                                                      │
 │  2. EJECUCIÓN                                        │
@@ -101,10 +101,10 @@ El sistema gestiona integralmente las actividades de seguridad industrial, salud
 
 #### Módulo 1: Planificación
 - Crear plan mensual por usuario
-- Dividir mes en 4 ciclos semanales
+- Dividir mes en 3 ciclos de planificación
 - Definir cantidad de veces que se ejecuta cada actividad
 - Asignar actividades por categoría
-- Plantillas de actividades predefinidas (93 actividades)
+- Plantillas de actividades predefinidas (53 actividades)
 
 #### Módulo 2: Ejecución
 - Registrar ejecución diaria
@@ -160,7 +160,7 @@ El sistema gestiona integralmente las actividades de seguridad industrial, salud
 **Flujo Principal:**
 1. Coordinador selecciona usuario (TAE)
 2. Selecciona mes/año
-3. Sistema muestra plantilla de 93 actividades agrupadas por 8 categorías
+3. Sistema muestra plantilla de 53 actividades agrupadas por 10 categorías
 4. Coordinador define cantidad de veces por actividad por ciclo
 5. Sistema calcula total mensual
 6. Coordinador aprueba plan
@@ -180,7 +180,7 @@ El sistema gestiona integralmente las actividades de seguridad industrial, salud
 1. TAE ve lista de actividades planeadas para hoy
 2. Selecciona actividad
 3. Completa observaciones
-4. Adjunta evidencias (opcional)
+4. Adjunta evidencias (obligatorias por defecto)
 5. Selecciona estado: Completado/Pendiente/Con Novedad
 6. Sistema registra con timestamp
 7. Sistema actualiza contador de cumplimiento
@@ -189,7 +189,8 @@ El sistema gestiona integralmente las actividades de seguridad industrial, salud
 - RN-004: Solo se puede ejecutar actividad que esté en el plan
 - RN-005: Una ejecución puede editarse dentro de 24 horas
 - RN-006: Ediciones posteriores requieren aprobación de Coordinador
-- RN-007: Las evidencias son obligatorias para actividades críticas
+- RN-007: Las evidencias son obligatorias por defecto en toda actividad planificada
+- RN-008: Coordinador y Administrador pueden exceptuar manualmente el requisito por actividad
 
 ### RF-003: Cálculo de Cumplimiento
 
@@ -208,9 +209,9 @@ Cumplimiento (%) = (Total Ejecutado / Total Planeado) × 100
 - **Por Año:** Promedio de 12 meses
 
 **Reglas de Negocio:**
-- RN-008: Se calcula en tiempo real
-- RN-009: Se redondea a 2 decimales
-- RN-010: Se guarda snapshot al final del mes
+- RN-009: Se calcula en tiempo real
+- RN-010: Se redondea a 2 decimales
+- RN-011: Se guarda snapshot al final del mes
 
 ### RF-004: Gestión de Emergencias
 
@@ -453,10 +454,10 @@ Cumplimiento (%) = (Total Ejecutado / Total Planeado) × 100
 5. `audit_logs` - Auditoría completa
 
 #### Planificación (6 tablas)
-6. `activity_categories` - 8 categorías
-7. `activity_templates` - 93 actividades predefinidas
+6. `activity_categories` - 10 categorías
+7. `activity_templates` - 53 actividades predefinidas
 8. `monthly_plans` - Planes mensuales
-9. `planning_cycles` - Ciclos semanales
+9. `planning_cycles` - Ciclos de planificación
 10. `planned_activities` - Actividades planeadas
 11. `activity_goals` - Metas anuales
 
@@ -514,9 +515,9 @@ Cumplimiento (%) = (Total Ejecutado / Total Planeado) × 100
 2. Selecciona TAE del dropdown
 3. Selecciona mes/año
 4. Sistema verifica que no exista plan para ese período
-5. Sistema carga plantilla de 93 actividades
-6. Coordinador ve tabla con 8 categorías
-7. Para cada actividad, define cantidad por ciclo (1-4)
+5. Sistema carga plantilla de 53 actividades
+6. Coordinador ve tabla con 10 categorías
+7. Para cada actividad, define cantidad por ciclo (1-3)
 8. Sistema calcula totales
 9. Coordinador revisa resumen
 10. Click en "Crear Plan"

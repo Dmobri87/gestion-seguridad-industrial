@@ -11,7 +11,10 @@ from app.api.v1.endpoints import (
     emergencies,
     equipment,
     certifications,
+    notifications,
+    alerts,
     dashboard,
+    reports,
 )
 
 api_router = APIRouter()
@@ -36,6 +39,9 @@ api_router.include_router(emergencies.router, prefix="/emergencies", tags=["Emer
 # Equipos y certificaciones
 api_router.include_router(equipment.router, prefix="/equipment", tags=["Equipos"])
 api_router.include_router(certifications.router, prefix="/certifications", tags=["Certificaciones"])
+api_router.include_router(notifications.router, prefix="/notifications", tags=["Notificaciones"])
+api_router.include_router(alerts.router, prefix="/alerts", tags=["Alertas"])
 
 # Dashboard y reportes
 api_router.include_router(dashboard.router, prefix="/dashboard", tags=["Dashboard"])
+api_router.include_router(reports.router, prefix="/reports", tags=["Reportes"])

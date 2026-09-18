@@ -25,7 +25,7 @@ class EmergencyTypeResponse(BaseModel):
 
 class EmergencyCreate(BaseModel):
     emergency_type_id: int
-    title: str
+    title: Optional[str] = None
     description: Optional[str] = None
     location: Optional[str] = None
     severity: str = "Media"
@@ -107,10 +107,19 @@ async def create_emergency(
     ).count() + 1
     emergency_code = f"EMG-{year}-{count:04d}"
 
+    # Auto-generar título si no se proporcionó
+    title = emergency_data.title
+    if not title:
+        emergency_type = db.query(EmergencyType).filter(
+            EmergencyType.id == emergency_data.emergency_type_id
+        ).first()
+        type_name = emergency_type.name if emergency_type else "Emergencia"
+        title = f"{type_name} - {datetime.utcnow().strftime('%d/%m/%Y %H:%M')}"
+
     emergency = Emergency(
         emergency_code=emergency_code,
         emergency_type_id=emergency_data.emergency_type_id,
-        title=emergency_data.title,
+        title=title,
         description=emergency_data.description,
         location=emergency_data.location,
         severity=emergency_data.severity,
@@ -137,6 +146,9 @@ async def register_arrival(
 
     if not emergency:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Emergencia no encontrada")
+
+    if emergency.organization_id and current_user.organization_id and emergency.organization_id != current_user.organization_id:
+        raise HTTPException(status_code=403, detail="No autorizado")
 
     now = datetime.utcnow()
     emergency.arrival_at = now
@@ -169,6 +181,9 @@ async def close_emergency(
 
     if not emergency:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Emergencia no encontrada")
+
+    if emergency.organization_id and current_user.organization_id and emergency.organization_id != current_user.organization_id:
+        raise HTTPException(status_code=403, detail="No autorizado")
 
     emergency.status = EmergencyStatus.CLOSED.value
     emergency.closed_at = datetime.utcnow()
