@@ -110,7 +110,9 @@ export interface ActivityExecution {
   cycle_number: number;
   status: string;
   observation?: string;
+  novelty_description?: string;
   approval_status: string;
+  rejection_reason?: string;
   files_count?: number;
 }
 

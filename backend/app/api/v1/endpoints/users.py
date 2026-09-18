@@ -234,6 +234,13 @@ async def delete_user(
             detail="Usuario no encontrado"
         )
 
+    # Verificar permisos de organización
+    if current_user.organization_id and user.organization_id != current_user.organization_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para desactivar este usuario"
+        )
+
     # No permitir eliminar a uno mismo
     if user.id == current_user.id:
         raise HTTPException(

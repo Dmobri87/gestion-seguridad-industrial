@@ -346,6 +346,11 @@ export const executionsApi = {
     const response = await api.delete(`/executions/${executionId}/files/${fileId}`);
     return response.data;
   },
+
+  correct: async (executionId: number, data: { observation?: string; novelty_description?: string; status?: string; location?: string; quantity?: number }) => {
+    const response = await api.put(`/executions/${executionId}/correct`, data);
+    return response.data;
+  },
 };
 
 // ==========================================

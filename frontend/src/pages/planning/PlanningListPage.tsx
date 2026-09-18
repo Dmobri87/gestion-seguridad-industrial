@@ -137,9 +137,16 @@ const PlanningListPage = () => {
     }
   };
 
+  const [groupRoleFilter, setGroupRoleFilter] = useState<string | null>('TAE');
+
   const handleSelectByGroup = (groupId: number) => {
-    const groupMembers = assignableUsers.filter((u: any) => u.work_group_id === groupId);
+    let groupMembers = assignableUsers.filter((u: any) => u.work_group_id === groupId);
+    // Aplicar filtro de rol si está activo
+    if (groupRoleFilter) {
+      groupMembers = groupMembers.filter((u) => u.role === groupRoleFilter);
+    }
     const memberIds = groupMembers.map((u) => u.id);
+    if (memberIds.length === 0) return;
     const allSelected = memberIds.every((id) => selectedUserIds.includes(id));
     if (allSelected) {
       setSelectedUserIds(selectedUserIds.filter((id) => !memberIds.includes(id)));
@@ -193,6 +200,7 @@ const PlanningListPage = () => {
     setSelectedUserIds([]);
     setLoadActivities(true);
     setSelectedYear(dayjs().year());
+    setGroupRoleFilter('TAE');
   };
 
   const handleApprovePlan = async (planId: number) => {
@@ -473,10 +481,25 @@ const PlanningListPage = () => {
             </Space>
           </div>
 
-          {/* Botones por grupo de trabajo */}
+          {/* Filtro de rol para selección por grupo */}
           {workGroups.length > 0 && (
             <div style={{ marginBottom: 8 }}>
-              <Text type="secondary" style={{ fontSize: 12 }}>Por grupo:</Text>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                <Text type="secondary" style={{ fontSize: 12 }}>Por grupo</Text>
+                <Select
+                  size="small"
+                  value={groupRoleFilter}
+                  onChange={setGroupRoleFilter}
+                  allowClear
+                  placeholder="Todos los roles"
+                  style={{ width: 140, fontSize: 12 }}
+                  options={[
+                    { value: 'TAE', label: 'Solo TAEs' },
+                    { value: 'PSE', label: 'Solo PSEs' },
+                    { value: 'Supervisor', label: 'Solo Supervisores' },
+                  ]}
+                />
+              </div>
               <div style={{ marginTop: 4 }}>
                 <Space wrap>
                   {workGroups.map((g: any) => (
@@ -484,9 +507,11 @@ const PlanningListPage = () => {
                       key={g.id}
                       size="small"
                       type={
-                        assignableUsers.filter((u: any) => u.work_group_id === g.id).length > 0 &&
-                        assignableUsers.filter((u: any) => u.work_group_id === g.id).every((u) => selectedUserIds.includes(u.id))
-                          ? 'primary' : 'default'
+                        (() => {
+                          let members = assignableUsers.filter((u: any) => u.work_group_id === g.id);
+                          if (groupRoleFilter) members = members.filter((u) => u.role === groupRoleFilter);
+                          return members.length > 0 && members.every((u) => selectedUserIds.includes(u.id));
+                        })() ? 'primary' : 'default'
                       }
                       onClick={() => handleSelectByGroup(g.id)}
                     >

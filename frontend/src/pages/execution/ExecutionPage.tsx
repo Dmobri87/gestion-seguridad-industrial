@@ -8,10 +8,10 @@ import {
   PlusOutlined, CheckOutlined, CloseOutlined, ClockCircleOutlined,
   CalendarOutlined, FireOutlined, FileTextOutlined, CheckCircleOutlined,
   ExclamationCircleOutlined, SyncOutlined, UploadOutlined, PaperClipOutlined,
-  EyeOutlined, DeleteOutlined, CameraOutlined
+  EyeOutlined, DeleteOutlined, CameraOutlined, EditOutlined, TeamOutlined
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { executionsApi } from '../../services/api';
+import { executionsApi, usersApi } from '../../services/api';
 import type { ActivityExecution } from '../../types';
 import { useAuthStore } from '../../stores/authStore';
 
@@ -79,17 +79,35 @@ const ExecutionPage = () => {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewImage, setPreviewImage] = useState('');
 
+  // Estado para corrección de rechazadas
+  const [correctModalOpen, setCorrectModalOpen] = useState(false);
+  const [selectedExecution, setSelectedExecution] = useState<ActivityExecution | null>(null);
+  const [correctForm] = Form.useForm();
+
+  // Estado para filtro de TAE (approvers)
+  const [taeUsers, setTaeUsers] = useState<any[]>([]);
+  const [selectedTaeId, setSelectedTaeId] = useState<number | undefined>(undefined);
+
   const isApprover = ['Administrador', 'Coordinador', 'Supervisor'].includes(user?.role || '');
 
   useEffect(() => {
+    if (isApprover) {
+      usersApi.getAll({ role: 'TAE' }).then((users: any) => {
+        setTaeUsers(Array.isArray(users) ? users : users.users || []);
+      }).catch(console.error);
+    }
+  }, [isApprover]);
+
+  useEffect(() => {
     loadData();
-  }, [year, month]);
+  }, [year, month, selectedTaeId]);
 
   const loadData = async () => {
     setLoading(true);
     try {
+      const userIdFilter = isApprover ? selectedTaeId : undefined;
       const [execsResponse, pendingResponse, statsResponse] = await Promise.all([
-        executionsApi.getAll(year, month),
+        executionsApi.getAll(year, month, userIdFilter),
         executionsApi.getMyToday(),
         executionsApi.getStats(year, month),
       ]);
@@ -196,6 +214,38 @@ const ExecutionPage = () => {
     } catch (error: any) {
       message.error(error.response?.data?.detail || 'Error en la operación');
     }
+  };
+
+  // ==========================================
+  // CORRECCIÓN DE RECHAZADAS
+  // ==========================================
+
+  const handleCorrectExecution = async (values: any) => {
+    if (!selectedExecution) return;
+    try {
+      await executionsApi.correct(selectedExecution.id, {
+        observation: values.observation,
+        novelty_description: values.novelty_description,
+        status: values.status,
+      });
+      message.success('Ejecución corregida y reenviada para aprobación');
+      setCorrectModalOpen(false);
+      correctForm.resetFields();
+      setSelectedExecution(null);
+      loadData();
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || 'Error al corregir');
+    }
+  };
+
+  const openCorrectModal = (execution: ActivityExecution) => {
+    setSelectedExecution(execution);
+    correctForm.setFieldsValue({
+      observation: execution.observation || '',
+      novelty_description: execution.novelty_description || '',
+      status: execution.status,
+    });
+    setCorrectModalOpen(true);
   };
 
   // ==========================================
@@ -315,7 +365,11 @@ const ExecutionPage = () => {
       dataIndex: 'approval_status',
       key: 'approval',
       width: 120,
-      render: (status: string) => getApprovalTag(status),
+      render: (status: string, record: ActivityExecution) => (
+        record.approval_status === 'Rechazado' && record.rejection_reason
+          ? <Tooltip title={`Motivo: ${record.rejection_reason}`}>{getApprovalTag(status)}</Tooltip>
+          : getApprovalTag(status)
+      ),
     },
     {
       title: 'Evidencias',
@@ -337,7 +391,7 @@ const ExecutionPage = () => {
     {
       title: 'Acciones',
       key: 'actions',
-      width: 120,
+      width: 180,
       render: (_: any, record: ActivityExecution) => (
         <Space size="small">
           {isApprover && record.approval_status === 'Pendiente' && (
@@ -359,6 +413,20 @@ const ExecutionPage = () => {
                 />
               </Tooltip>
             </>
+          )}
+          {record.approval_status === 'Rechazado' && Number(record.user_id) === Number(user?.id) && (
+            <Tooltip title="Corregir y Reenviar">
+              <Button
+                type="primary"
+                ghost
+                size="small"
+                icon={<EditOutlined />}
+                onClick={() => openCorrectModal(record)}
+                style={{ borderColor: '#faad14', color: '#faad14' }}
+              >
+                Corregir
+              </Button>
+            </Tooltip>
           )}
         </Space>
       ),
@@ -393,6 +461,19 @@ const ExecutionPage = () => {
           <Text type="secondary">Gestiona y registra las actividades ejecutadas</Text>
         </div>
         <Space>
+          {isApprover && taeUsers.length > 0 && (
+            <Select
+              value={selectedTaeId}
+              onChange={(val) => setSelectedTaeId(val)}
+              placeholder="Filtrar por TAE"
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              style={{ width: 220 }}
+              suffixIcon={<TeamOutlined />}
+              options={taeUsers.map((u: any) => ({ value: u.id, label: u.full_name || u.email }))}
+            />
+          )}
           <Select value={month} onChange={setMonth} options={months} style={{ width: 140 }} />
           <Select
             value={year}
@@ -519,6 +600,31 @@ const ExecutionPage = () => {
                 <Table dataSource={executions.filter(e => e.approval_status === 'Pendiente')} columns={columns}
                   rowKey="id" loading={loading} pagination={{ defaultPageSize: 15, showSizeChanger: true, pageSizeOptions: ['15', '20', '50', '100'] }} size="small"
                   locale={{ emptyText: 'No hay ejecuciones pendientes de aprobación' }} />
+              </Card>
+            ),
+          },
+          {
+            key: 'rejected',
+            label: (
+              <span>
+                <CloseOutlined /> Rechazadas{' '}
+                <Badge
+                  count={executions.filter(e => e.approval_status === 'Rechazado').length}
+                  style={{ marginLeft: 8, backgroundColor: '#ff4d4f' }}
+                />
+              </span>
+            ),
+            children: (
+              <Card>
+                <Table
+                  dataSource={executions.filter(e => e.approval_status === 'Rechazado')}
+                  columns={columns}
+                  rowKey="id"
+                  loading={loading}
+                  pagination={{ defaultPageSize: 15 }}
+                  size="small"
+                  locale={{ emptyText: 'No hay ejecuciones rechazadas' }}
+                />
               </Card>
             ),
           },
@@ -709,6 +815,65 @@ const ExecutionPage = () => {
               </List.Item>
             )}
           />
+        )}
+      </Modal>
+
+      {/* ===== MODAL CORRECCIÓN DE RECHAZADAS ===== */}
+      <Modal
+        title={
+          <Space>
+            <EditOutlined style={{ color: '#faad14' }} />
+            <span>Corregir y Reenviar</span>
+          </Space>
+        }
+        open={correctModalOpen}
+        onCancel={() => {
+          setCorrectModalOpen(false);
+          setSelectedExecution(null);
+          correctForm.resetFields();
+        }}
+        onOk={() => correctForm.submit()}
+        okText="Corregir y Reenviar"
+        cancelText="Cancelar"
+        width={500}
+      >
+        {selectedExecution && (
+          <>
+            <Card
+              size="small"
+              style={{ marginBottom: 16, backgroundColor: '#fff2e8', borderColor: '#ffbb96' }}
+            >
+              <Space direction="vertical" size={4}>
+                <Text strong>{selectedExecution.activity_name}</Text>
+                <Text type="secondary">
+                  Fecha: {dayjs(selectedExecution.execution_date).format('DD/MM/YYYY')}
+                </Text>
+                {selectedExecution.rejection_reason && (
+                  <div>
+                    <Text type="danger" strong>Motivo del rechazo: </Text>
+                    <Text type="danger">{selectedExecution.rejection_reason}</Text>
+                  </div>
+                )}
+              </Space>
+            </Card>
+            <Form form={correctForm} layout="vertical" onFinish={handleCorrectExecution}>
+              <Form.Item name="status" label="Estado" rules={[{ required: true }]}>
+                <Select
+                  options={[
+                    { value: 'Completado', label: 'Completado' },
+                    { value: 'Pendiente', label: 'Pendiente' },
+                    { value: 'Con Novedad', label: 'Con Novedad' },
+                  ]}
+                />
+              </Form.Item>
+              <Form.Item name="observation" label="Observación corregida">
+                <TextArea rows={3} placeholder="Describe la corrección..." />
+              </Form.Item>
+              <Form.Item name="novelty_description" label="Descripción de novedad">
+                <TextArea rows={2} placeholder="Detalle de novedad..." />
+              </Form.Item>
+            </Form>
+          </>
         )}
       </Modal>
 

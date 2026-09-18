@@ -1,5 +1,10 @@
 # Guía de Despliegue - Sistema de Gestión de Seguridad Industrial
 
+## Guías rápidas relacionadas
+
+- Ejecución local sin Docker: `LOCAL_SETUP.md`
+- Checklist de producción: `PRODUCTION_CHECKLIST.md`
+
 ## 1. Requisitos del Sistema
 
 ### Backend

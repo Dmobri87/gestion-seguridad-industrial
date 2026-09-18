@@ -1,9 +1,11 @@
 import os
 import re
 import uuid
-import shutil
 import logging
+import hmac
+import hashlib
 from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import and_
 from typing import List, Optional
@@ -11,13 +13,15 @@ from datetime import date, datetime, timedelta
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user, require_roles
+from app.core.config import SECRET_KEY
 from app.models.user import User, UserRole
 from app.models.planning import PlannedActivity, MonthlyPlan
 from app.models.execution import ActivityExecution, ExecutionFile, ExecutionHistory, ExecutionStatus, ApprovalStatus
 from app.schemas.execution import (
     ActivityExecutionResponse, ActivityExecutionCreateV1, ActivityExecutionUpdateV1,
-    ActivityExecutionWithDetails, ExecutionFileResponse, ExecutionFileCreate,
-    ExecutionApprovalRequest, ExecutionApprovalResponse, ExecutionStats
+    ActivityExecutionWithDetails, ExecutionFileResponse,
+    ExecutionApprovalRequest, ExecutionApprovalResponse, ExecutionStats,
+    ExecutionCorrectionRequest,
 )
 
 logger = logging.getLogger(__name__)
@@ -27,6 +31,7 @@ router = APIRouter()
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))), "uploads")
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".mp4", ".mov", ".avi"}
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+SIGNED_FILE_URL_TTL_SECONDS = 600
 
 # Magic bytes para validación de tipo de archivo
 MAGIC_BYTES = {
@@ -66,6 +71,100 @@ def _validate_magic_bytes(content: bytes, extension: str) -> bool:
     return any(content.startswith(sig) for sig in signatures)
 
 
+def _apply_role_filter(query, current_user: User, db: Session):
+    """
+    Aplica filtrado por rol a una query de ActivityExecution.
+    - TAE/PSE: solo sus propias ejecuciones
+    - Coordinador: ejecuciones de TAEs cuyos planes creó él
+    - Supervisor: ejecuciones de TAEs subordinados (supervisor_id)
+    - Administrador: sin filtro adicional
+    """
+    role = current_user.role
+
+    if role in (UserRole.TAE.value, UserRole.PSE.value):
+        query = query.filter(ActivityExecution.user_id == current_user.id)
+
+    elif role == UserRole.COORDINATOR.value:
+        # TAEs cuyos planes fueron creados por este coordinador
+        from sqlalchemy import select
+        subordinate_ids = (
+            select(MonthlyPlan.user_id)
+            .where(MonthlyPlan.created_by == current_user.id)
+            .distinct()
+        )
+        query = query.filter(ActivityExecution.user_id.in_(subordinate_ids))
+
+    elif role == UserRole.SUPERVISOR.value:
+        # TAEs que reportan a este supervisor
+        from sqlalchemy import select
+        subordinate_ids = (
+            select(User.id)
+            .where(User.supervisor_id == current_user.id)
+        )
+        query = query.filter(ActivityExecution.user_id.in_(subordinate_ids))
+
+    # Administrador: sin filtro adicional
+
+    return query
+
+
+def _execution_visible_to_user(execution_id: int, current_user: User, db: Session) -> bool:
+    query = db.query(ActivityExecution.id).filter(ActivityExecution.id == execution_id)
+    if current_user.organization_id:
+        query = query.filter(ActivityExecution.organization_id == current_user.organization_id)
+    query = _apply_role_filter(query, current_user, db)
+    return query.first() is not None
+
+
+def _enforce_execution_access(execution: ActivityExecution, current_user: User, db: Session) -> None:
+    if current_user.organization_id and execution.organization_id != current_user.organization_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para acceder a ejecuciones de otra organización"
+        )
+    if not _execution_visible_to_user(execution.id, current_user, db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para acceder a esta ejecución"
+        )
+
+
+def _resolve_file_path(db_file: ExecutionFile) -> str:
+    """Resuelve la ruta física de un archivo de evidencia almacenado."""
+    if db_file.file_url.startswith("/uploads/"):
+        relative_path = db_file.file_url.replace("/uploads/", "", 1)
+    else:
+        relative_path = db_file.file_url.lstrip("/")
+    return os.path.join(UPLOAD_DIR, relative_path)
+
+
+def _build_file_signature(execution_id: int, file_id: int, exp_ts: int) -> str:
+    payload = f"{execution_id}:{file_id}:{exp_ts}".encode("utf-8")
+    return hmac.new(SECRET_KEY.encode("utf-8"), payload, hashlib.sha256).hexdigest()
+
+def _build_secure_file_url(execution_id: int, file_id: int, exp_ts: int, sig: str) -> str:
+    return f"/api/v1/executions/{execution_id}/files/{file_id}/download?exp={exp_ts}&sig={sig}"
+
+
+def _to_execution_file_response(db_file: ExecutionFile, exp_ts: Optional[int] = None) -> ExecutionFileResponse:
+    if exp_ts is None:
+        exp_dt = datetime.utcnow() + timedelta(seconds=SIGNED_FILE_URL_TTL_SECONDS)
+        exp_ts = int(exp_dt.timestamp())
+    sig = _build_file_signature(db_file.execution_id, db_file.id, exp_ts)
+    return ExecutionFileResponse(
+        id=db_file.id,
+        execution_id=db_file.execution_id,
+        file_name=db_file.file_name,
+        file_type=db_file.file_type,
+        file_size=db_file.file_size,
+        file_url=_build_secure_file_url(db_file.execution_id, db_file.id, exp_ts, sig),
+        description=db_file.description,
+        is_primary=db_file.is_primary,
+        created_at=db_file.created_at,
+        uploaded_by=db_file.uploaded_by,
+    )
+
+
 @router.get("/", response_model=List[ActivityExecutionWithDetails])
 async def get_executions(
     year: int = Query(..., ge=2020, le=2100),
@@ -74,11 +173,11 @@ async def get_executions(
     status: Optional[str] = None,
     approval_status: Optional[str] = None,
     skip: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=100),
+    limit: int = Query(100, ge=1, le=500),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Listar ejecuciones con filtros."""
+    """Listar ejecuciones con filtros. Resultados filtrados según rol del usuario."""
     query = db.query(ActivityExecution).options(
         joinedload(ActivityExecution.user),
         joinedload(ActivityExecution.planned_activity).joinedload(PlannedActivity.activity_template)
@@ -87,6 +186,9 @@ async def get_executions(
     # Filtrar por organización
     if current_user.organization_id:
         query = query.filter(ActivityExecution.organization_id == current_user.organization_id)
+
+    # Filtrado por rol
+    query = _apply_role_filter(query, current_user, db)
 
     # Filtro por fecha
     start_date = date(year, month, 1)
@@ -144,10 +246,40 @@ async def create_execution(
             detail="Actividad planeada no encontrada"
         )
 
+    plan = planned.monthly_plan
+    if not plan:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La actividad planeada no está asociada a un plan válido"
+        )
+    if current_user.organization_id and plan.organization_id != current_user.organization_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para registrar ejecuciones en otra organización"
+        )
+
+    target_user_id = execution_data.user_id or current_user.id
+    if target_user_id != plan.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La ejecución debe registrarse para el usuario asignado al plan"
+        )
+
+    is_approver = current_user.role in {
+        UserRole.ADMIN.value,
+        UserRole.COORDINATOR.value,
+        UserRole.SUPERVISOR.value,
+    }
+    if target_user_id != current_user.id and not is_approver:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para registrar ejecuciones para otro usuario"
+        )
+
     # Crear ejecución
     execution = ActivityExecution(
         planned_activity_id=execution_data.planned_activity_id,
-        user_id=execution_data.user_id or current_user.id,
+        user_id=target_user_id,
         execution_date=execution_data.execution_date,
         cycle_number=execution_data.cycle_number,
         status=execution_data.status,
@@ -155,7 +287,7 @@ async def create_execution(
         novelty_description=execution_data.novelty_description,
         location=execution_data.location,
         quantity=execution_data.quantity,
-        organization_id=execution_data.organization_id or current_user.organization_id,
+        organization_id=plan.organization_id,
         approval_status=ApprovalStatus.PENDING.value,
         is_editable=True,
         edit_deadline=datetime.utcnow() + timedelta(hours=24)
@@ -168,7 +300,6 @@ async def create_execution(
     _recalculate_activity_compliance(planned)
 
     # Actualizar plan
-    plan = planned.monthly_plan
     plan.total_executed += execution_data.quantity
     if plan.total_planned > 0:
         plan.compliance_percentage = (plan.total_executed / plan.total_planned) * 100
@@ -256,6 +387,7 @@ async def approve_execution(
 
     if not execution:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ejecución no encontrada")
+    _enforce_execution_access(execution, current_user, db)
 
     execution.approval_status = ApprovalStatus.APPROVED.value if approval_data.approved else ApprovalStatus.REJECTED.value
     execution.approved_by = current_user.id
@@ -274,6 +406,81 @@ async def approve_execution(
     )
 
 
+@router.put("/{execution_id}/correct", response_model=ActivityExecutionResponse)
+async def correct_execution(
+    execution_id: int,
+    correction_data: ExecutionCorrectionRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Corregir y reenviar una ejecución rechazada.
+    Solo el TAE que creó la ejecución puede corregirla.
+    """
+    execution = db.query(ActivityExecution).filter(
+        ActivityExecution.id == execution_id
+    ).first()
+
+    if not execution:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Ejecución no encontrada"
+        )
+    _enforce_execution_access(execution, current_user, db)
+
+    # Solo el creador puede corregir
+    if execution.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo el TAE que creó la ejecución puede corregirla"
+        )
+
+    # Solo se pueden corregir ejecuciones rechazadas
+    if execution.approval_status != ApprovalStatus.REJECTED.value:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Solo se pueden corregir ejecuciones con estado Rechazado"
+        )
+
+    # Aplicar correcciones
+    changes = []
+    for field in ("observation", "novelty_description", "status", "location", "quantity"):
+        new_value = getattr(correction_data, field, None)
+        if new_value is not None:
+            old_value = getattr(execution, field)
+            setattr(execution, field, new_value)
+            changes.append(f"{field}: {old_value} -> {new_value}")
+
+    # Reenviar para aprobación
+    execution.approval_status = ApprovalStatus.PENDING.value
+    execution.rejection_reason = None
+    execution.is_editable = True
+    execution.approved_by = None
+    execution.approved_at = None
+
+    # Registrar en historial
+    history_entry = ExecutionHistory(
+        execution_id=execution.id,
+        action="CORRECT",
+        field_changed=", ".join(changes) if changes else "resubmit",
+        old_value=ApprovalStatus.REJECTED.value,
+        new_value=ApprovalStatus.PENDING.value,
+        changed_by=current_user.id,
+        reason="Corrección y reenvío de ejecución rechazada",
+    )
+    db.add(history_entry)
+
+    db.commit()
+    db.refresh(execution)
+
+    logger.info(
+        "Ejecución %s corregida y reenviada por usuario %s",
+        execution_id, current_user.email,
+    )
+
+    return execution
+
+
 @router.get("/stats", response_model=ExecutionStats)
 async def get_execution_stats(
     year: int = Query(..., ge=2020, le=2100),
@@ -282,7 +489,7 @@ async def get_execution_stats(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Obtener estadísticas de ejecuciones."""
+    """Obtener estadísticas de ejecuciones. Filtradas según rol del usuario."""
     start_date = date(year, month, 1)
     end_date = date(year, month + 1, 1) if month < 12 else date(year + 1, 1, 1)
 
@@ -295,6 +502,10 @@ async def get_execution_stats(
 
     if current_user.organization_id:
         query = query.filter(ActivityExecution.organization_id == current_user.organization_id)
+
+    # Filtrado por rol
+    query = _apply_role_filter(query, current_user, db)
+
     if user_id:
         query = query.filter(ActivityExecution.user_id == user_id)
 
@@ -337,6 +548,7 @@ async def upload_execution_file(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Ejecución no encontrada"
         )
+    _enforce_execution_access(execution, current_user, db)
 
     # Sanitizar y validar nombre de archivo
     original_filename = _sanitize_filename(file.filename or "archivo")
@@ -444,7 +656,7 @@ async def upload_execution_file(
         )
 
     logger.info("Archivo subido: %s para ejecución %s por %s", unique_name, execution_id, current_user.email)
-    return db_file
+    return _to_execution_file_response(db_file)
 
 
 @router.get("/{execution_id}/files", response_model=List[ExecutionFileResponse])
@@ -463,12 +675,60 @@ async def get_execution_files(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Ejecución no encontrada"
         )
+    _enforce_execution_access(execution, current_user, db)
 
     files = db.query(ExecutionFile).filter(
         ExecutionFile.execution_id == execution_id
     ).order_by(ExecutionFile.created_at.desc()).all()
 
-    return files
+    return [_to_execution_file_response(file) for file in files]
+
+
+@router.get("/{execution_id}/files/{file_id}/download")
+async def download_execution_file(
+    execution_id: int,
+    file_id: int,
+    exp: int = Query(...),
+    sig: str = Query(..., min_length=32),
+    db: Session = Depends(get_db),
+):
+    """Descargar evidencia por URL firmada temporal."""
+    now_ts = int(datetime.utcnow().timestamp())
+    if exp < now_ts:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="El enlace de descarga ha expirado"
+        )
+
+    expected_sig = _build_file_signature(execution_id, file_id, exp)
+    if not hmac.compare_digest(sig, expected_sig):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Firma de descarga inválida"
+        )
+
+    db_file = db.query(ExecutionFile).filter(
+        ExecutionFile.id == file_id,
+        ExecutionFile.execution_id == execution_id
+    ).first()
+    if not db_file:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Archivo no encontrado"
+        )
+
+    file_path = _resolve_file_path(db_file)
+    if not os.path.exists(file_path):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Archivo no disponible"
+        )
+
+    return FileResponse(
+        path=file_path,
+        media_type=db_file.file_type or "application/octet-stream",
+        filename=db_file.file_name,
+    )
 
 
 @router.delete("/{execution_id}/files/{file_id}")
@@ -479,6 +739,16 @@ async def delete_execution_file(
     db: Session = Depends(get_db)
 ):
     """Eliminar un archivo de evidencia."""
+    execution = db.query(ActivityExecution).filter(
+        ActivityExecution.id == execution_id
+    ).first()
+    if not execution:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Ejecución no encontrada"
+        )
+    _enforce_execution_access(execution, current_user, db)
+
     db_file = db.query(ExecutionFile).filter(
         ExecutionFile.id == file_id,
         ExecutionFile.execution_id == execution_id
@@ -498,8 +768,7 @@ async def delete_execution_file(
         )
 
     # Eliminar archivo físico
-    relative_path = db_file.file_url.replace("/uploads/", "", 1)
-    file_path = os.path.join(UPLOAD_DIR, relative_path)
+    file_path = _resolve_file_path(db_file)
     if os.path.exists(file_path):
         os.remove(file_path)
 

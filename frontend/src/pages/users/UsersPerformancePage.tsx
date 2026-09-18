@@ -5,11 +5,10 @@ import {
 } from 'antd';
 import {
   UserOutlined, TrophyOutlined, CheckCircleOutlined, ClockCircleOutlined,
-  TeamOutlined, CalendarOutlined, BarChartOutlined, ExportOutlined
+  TeamOutlined, BarChartOutlined, ExportOutlined
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { usersApi, planningApi, executionsApi } from '../../services/api';
-import { useAuthStore } from '../../stores/authStore';
 
 const { Title, Text } = Typography;
 
@@ -30,11 +29,9 @@ interface TAEPerformance {
 
 const UsersPerformancePage = () => {
   const [loading, setLoading] = useState(true);
-  const [taes, setTaes] = useState<any[]>([]);
   const [performance, setPerformance] = useState<TAEPerformance[]>([]);
   const [year, setYear] = useState(dayjs().year());
   const [month, setMonth] = useState(dayjs().month() + 1);
-  const user = useAuthStore((state) => state.user);
 
   useEffect(() => {
     loadData();
@@ -45,7 +42,6 @@ const UsersPerformancePage = () => {
     try {
       // Cargar TAEs
       const taesResponse = await usersApi.getTAEs();
-      setTaes(taesResponse);
 
       // Cargar planes del mes
       const plansResponse = await planningApi.getPlans(year, month);

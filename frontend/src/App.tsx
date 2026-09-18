@@ -25,6 +25,20 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   return <>{children}</>;
 };
 
+const RoleRoute = ({
+  children,
+  allowedRoles,
+}: {
+  children: React.ReactNode;
+  allowedRoles: string[];
+}) => {
+  const user = useAuthStore((state) => state.user);
+  if (!user || !allowedRoles.includes(user.role)) {
+    return <Navigate to="/dashboard" replace />;
+  }
+  return <>{children}</>;
+};
+
 function App() {
   return (
     <BrowserRouter>
@@ -51,7 +65,14 @@ function App() {
           <Route path="certifications" element={<CertificationsPage />} />
           <Route path="activities" element={<ActivitiesPage />} />
           <Route path="users/performance" element={<UsersPerformancePage />} />
-          <Route path="admin" element={<AdminPage />} />
+          <Route
+            path="admin"
+            element={
+              <RoleRoute allowedRoles={['Administrador', 'Coordinador']}>
+                <AdminPage />
+              </RoleRoute>
+            }
+          />
           <Route path="profile" element={<ProfilePage />} />
         </Route>
 

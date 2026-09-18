@@ -35,7 +35,7 @@ const OTP_EXPIRATION_SECONDS = 5 * 60;
 const LoginPage = () => {
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState<'credentials' | 'otp'>('credentials');
-  const [otpValues, setOtpValues] = useState<string[]>(['', '', '', '', '', '']);
+  const [otpValues, setOtpValues] = useState<string[]>(['', '', '', '', '', '', '', '']);
   const [countdown, setCountdown] = useState(OTP_EXPIRATION_SECONDS);
   const [resendLoading, setResendLoading] = useState(false);
   const [loginEmail, setLoginEmail] = useState('');
@@ -97,7 +97,7 @@ const LoginPage = () => {
       if (response.requires_2fa) {
         setPending2FA(values.email, response.dev_otp || null);
         setStep('otp');
-        setOtpValues(['', '', '', '', '', '']);
+        setOtpValues(['', '', '', '', '', '', '', '']);
         message.info('Código de verificación enviado a su email');
       } else if (response.access_token) {
         // Fallback: direct token (should not happen with mandatory 2FA)
@@ -113,9 +113,9 @@ const LoginPage = () => {
     }
   };
 
-  // Step 2: Verify OTP
+  // Step 2: Verify OTP (8 digits)
   const handleVerifyOtp = useCallback(async (otpCode: string) => {
-    if (otpCode.length !== 6) return;
+    if (otpCode.length !== 8) return;
 
     setLoading(true);
     try {
@@ -128,7 +128,7 @@ const LoginPage = () => {
       const errorMessage = error.response?.data?.detail || 'Error al verificar el código';
       message.error(errorMessage);
       // Clear OTP inputs on error
-      setOtpValues(['', '', '', '', '', '']);
+      setOtpValues(['', '', '', '', '', '', '', '']);
       setTimeout(() => {
         otpInputRefs.current[0]?.focus();
       }, 100);
@@ -145,14 +145,14 @@ const LoginPage = () => {
     newValues[index] = digit;
     setOtpValues(newValues);
 
-    if (digit && index < 5) {
+    if (digit && index < 7) {
       // Move to next input
       otpInputRefs.current[index + 1]?.focus();
     }
 
-    // Auto-submit when all 6 digits are entered
+    // Auto-submit when all 8 digits are entered
     const fullCode = newValues.join('');
-    if (fullCode.length === 6 && newValues.every((v) => v !== '')) {
+    if (fullCode.length === 8 && newValues.every((v) => v !== '')) {
       handleVerifyOtp(fullCode);
     }
   };
@@ -160,20 +160,20 @@ const LoginPage = () => {
   // Handle paste in OTP inputs
   const handleOtpPaste = (e: React.ClipboardEvent) => {
     e.preventDefault();
-    const pastedData = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+    const pastedData = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 8);
     if (pastedData.length > 0) {
       const newValues = [...otpValues];
-      for (let i = 0; i < 6; i++) {
+      for (let i = 0; i < 8; i++) {
         newValues[i] = pastedData[i] || '';
       }
       setOtpValues(newValues);
 
       // Focus last filled or next empty
-      const focusIndex = Math.min(pastedData.length, 5);
+      const focusIndex = Math.min(pastedData.length, 7);
       otpInputRefs.current[focusIndex]?.focus();
 
-      // Auto-submit if all 6 digits pasted
-      if (pastedData.length === 6) {
+      // Auto-submit if all 8 digits pasted
+      if (pastedData.length === 8) {
         handleVerifyOtp(pastedData);
       }
     }
@@ -202,7 +202,7 @@ const LoginPage = () => {
       const response = await authApi.login(loginEmail, loginPassword);
       if (response.requires_2fa) {
         setPending2FA(loginEmail, response.dev_otp || null);
-        setOtpValues(['', '', '', '', '', '']);
+        setOtpValues(['', '', '', '', '', '', '', '']);
         setCountdown(OTP_EXPIRATION_SECONDS);
         // Restart timer
         if (countdownRef.current) clearInterval(countdownRef.current);
@@ -232,7 +232,7 @@ const LoginPage = () => {
   const handleBackToLogin = () => {
     clear2FA();
     setStep('credentials');
-    setOtpValues(['', '', '', '', '', '']);
+    setOtpValues(['', '', '', '', '', '', '', '']);
     setLoginPassword('');
     if (countdownRef.current) clearInterval(countdownRef.current);
   };
@@ -240,23 +240,23 @@ const LoginPage = () => {
   // Manual submit OTP button
   const handleManualOtpSubmit = () => {
     const code = otpValues.join('');
-    if (code.length === 6) {
+    if (code.length === 8) {
       handleVerifyOtp(code);
     } else {
-      message.warning('Ingrese los 6 dígitos del código de verificación');
+      message.warning('Ingrese los 8 digitos del codigo de verificacion');
     }
   };
 
   return (
     <div className="login-container">
-      <Card className="login-card" style={{ width: step === 'otp' ? 440 : 400 }}>
+      <Card className="login-card" style={{ width: step === 'otp' ? 500 : 400 }}>
         {/* ── Step 1: Email + Password ── */}
         {step === 'credentials' && (
           <>
             <div className="login-title">
               <SafetyOutlined style={{ fontSize: 48, color: '#1890ff', marginBottom: 16 }} />
-              <Title level={3}>Sistema de Gesti&oacute;n</Title>
-              <Text type="secondary">Seguridad Industrial y Salud Ocupacional</Text>
+              <Title level={3}>Gesti&oacute;n GAE</Title>
+              <Text type="secondary">Sistema de Gesti&oacute;n Empresarial</Text>
             </div>
 
             <Form
@@ -281,11 +281,11 @@ const LoginPage = () => {
 
               <Form.Item
                 name="password"
-                rules={[{ required: true, message: 'Ingresa tu contrase\u00f1a' }]}
+                rules={[{ required: true, message: 'Ingresa tu Contraseña' }]}
               >
                 <Input.Password
                   prefix={<LockOutlined />}
-                  placeholder="Contrase\u00f1a"
+                  placeholder="Contraseña"
                 />
               </Form.Item>
 
@@ -303,7 +303,7 @@ const LoginPage = () => {
 
             <div style={{ textAlign: 'center', marginTop: 16 }}>
               <Text type="secondary" style={{ fontSize: 12 }}>
-                Seguridad Industrial y Salud Ocupacional v2.0
+                Gesti&oacute;n GAE v2.0
               </Text>
             </div>
           </>
@@ -381,10 +381,10 @@ const LoginPage = () => {
                   onKeyDown={(e) => handleOtpKeyDown(index, e)}
                   disabled={loading}
                   style={{
-                    width: 48,
-                    height: 56,
+                    width: 42,
+                    height: 52,
                     textAlign: 'center',
-                    fontSize: 24,
+                    fontSize: 22,
                     fontWeight: 700,
                     fontFamily: "'Courier New', monospace",
                     border: value
@@ -451,7 +451,7 @@ const LoginPage = () => {
               block
               loading={loading}
               onClick={handleManualOtpSubmit}
-              disabled={otpValues.join('').length !== 6 || countdown === 0}
+              disabled={otpValues.join('').length !== 8 || countdown === 0}
               style={{ marginBottom: 16, height: 44 }}
             >
               Verificar

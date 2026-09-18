@@ -12,6 +12,14 @@ from pydantic import BaseModel, ConfigDict
 router = APIRouter()
 
 
+def _enforce_emergency_org_access(emergency: Emergency, current_user: User) -> None:
+    if current_user.organization_id and emergency.organization_id != current_user.organization_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para acceder a emergencias de otra organización"
+        )
+
+
 # Schemas simplificados para emergencias
 class EmergencyTypeResponse(BaseModel):
     id: int
@@ -137,6 +145,7 @@ async def register_arrival(
 
     if not emergency:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Emergencia no encontrada")
+    _enforce_emergency_org_access(emergency, current_user)
 
     now = datetime.utcnow()
     emergency.arrival_at = now
@@ -169,6 +178,7 @@ async def close_emergency(
 
     if not emergency:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Emergencia no encontrada")
+    _enforce_emergency_org_access(emergency, current_user)
 
     emergency.status = EmergencyStatus.CLOSED.value
     emergency.closed_at = datetime.utcnow()

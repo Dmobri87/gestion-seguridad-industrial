@@ -4,23 +4,14 @@ Soporta SMTP configurado por variables de entorno.
 En modo desarrollo (sin SMTP), registra el OTP en logs.
 """
 
-import os
 import smtplib
 import logging
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from dotenv import load_dotenv
 
-load_dotenv()
+from app.core.config import SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_FROM
 
 logger = logging.getLogger(__name__)
-
-# Configuración SMTP desde variables de entorno
-SMTP_HOST = os.getenv("SMTP_HOST", "")
-SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
-SMTP_USER = os.getenv("SMTP_USER", "")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
-SMTP_FROM = os.getenv("SMTP_FROM", "noreply@seguridad-industrial.com")
 
 
 def is_smtp_configured() -> bool:
