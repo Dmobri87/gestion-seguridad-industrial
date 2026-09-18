@@ -138,6 +138,23 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("Error ejecutando migraciones")
 
+    # Auto-seed: crear datos iniciales solo si no hay usuarios en la DB
+    try:
+        from app.core.database import SessionLocal
+        from app.models.user import User
+        db = SessionLocal()
+        user_count = db.query(User).count()
+        db.close()
+        if user_count == 0:
+            logger.info("Base de datos vacia, ejecutando seed_database()...")
+            from app.db.seed_data import seed_database
+            seed_database()
+            logger.info("Seed completado exitosamente")
+        else:
+            logger.info("Base de datos ya contiene %d usuarios, omitiendo seed", user_count)
+    except Exception:
+        logger.exception("Error ejecutando seed automatico")
+
     logger.info("CORS origenes permitidos: %s", CORS_ORIGINS)
     logger.info("Hosts confiables: %s", ALLOWED_HOSTS)
     logger.info("DEBUG=%s", DEBUG)

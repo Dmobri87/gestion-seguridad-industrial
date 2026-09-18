@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 from datetime import date, timedelta
 from pydantic import BaseModel, ConfigDict
 
 from app.core.database import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, require_roles
 from app.models.user import User
 from app.models.certification import CertificationType, UserCertification, CertificationStatus
 
@@ -85,7 +85,7 @@ async def get_user_certifications(
 @router.post("/", response_model=UserCertificationResponse)
 async def create_certification(
     data: CertificationCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_roles(["Administrador", "Coordinador"])),
     db: Session = Depends(get_db)
 ):
     """Registrar nueva certificación."""
@@ -110,7 +110,10 @@ async def get_expiring_certifications(
     today = date.today()
     expiry_limit = today + timedelta(days=days)
 
-    query = db.query(UserCertification).join(User)
+    query = db.query(UserCertification).options(
+        joinedload(UserCertification.user),
+        joinedload(UserCertification.certification_type)
+    ).join(User)
 
     if current_user.organization_id:
         query = query.filter(User.organization_id == current_user.organization_id)
@@ -122,8 +125,8 @@ async def get_expiring_certifications(
 
     result = []
     for cert in certifications:
-        user = db.query(User).filter(User.id == cert.user_id).first()
-        cert_type = db.query(CertificationType).filter(CertificationType.id == cert.certification_type_id).first()
+        user = cert.user
+        cert_type = cert.certification_type
         days_until = (cert.expiry_date - today).days
 
         result.append({

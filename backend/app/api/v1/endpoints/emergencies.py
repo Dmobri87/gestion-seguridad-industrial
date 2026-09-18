@@ -138,6 +138,10 @@ async def register_arrival(
     if not emergency:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Emergencia no encontrada")
 
+    # Verificar que la emergencia pertenece a la organización del usuario
+    if current_user.organization_id and emergency.organization_id != current_user.organization_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Sin permiso sobre esta emergencia")
+
     now = datetime.utcnow()
     emergency.arrival_at = now
     emergency.attended_by = current_user.id
@@ -169,6 +173,10 @@ async def close_emergency(
 
     if not emergency:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Emergencia no encontrada")
+
+    # Verificar que la emergencia pertenece a la organización del usuario
+    if current_user.organization_id and emergency.organization_id != current_user.organization_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Sin permiso sobre esta emergencia")
 
     emergency.status = EmergencyStatus.CLOSED.value
     emergency.closed_at = datetime.utcnow()

@@ -50,7 +50,8 @@ const AdminPage = () => {
       ]);
 
       if (results[0].status === 'fulfilled') {
-        setUsers(results[0].value);
+        const usersData = results[0].value;
+        setUsers(Array.isArray(usersData) ? usersData : usersData?.users || []);
       } else {
         console.error('Error cargando usuarios:', results[0].reason);
         message.error('Error al cargar usuarios');

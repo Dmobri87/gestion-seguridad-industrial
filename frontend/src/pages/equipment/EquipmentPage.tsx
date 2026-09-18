@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   Card, Table, Button, Select, Space, Tag, Modal, Form, Input, message,
   Typography, Row, Col, Statistic, Tabs, Descriptions, Switch, Tooltip, Divider, Progress,
@@ -116,6 +116,7 @@ const EquipmentPage = () => {
   const [resolveForm] = Form.useForm();
 
   const canManage = ['Administrador', 'Coordinador'].includes(user?.role || '');
+  const activeNovelty = useMemo(() => activeNovelty, [novelties]);
 
   useEffect(() => {
     loadEquipment();
@@ -569,23 +570,23 @@ const EquipmentPage = () => {
             message={
               <Space>
                 <Text strong style={{ color: '#ff4d4f' }}>FUERA DE SERVICIO</Text>
-                <Tag color="red">{novelties.find(n => !n.is_resolved)?.shift || ''}</Tag>
+                <Tag color="red">{activeNovelty?.shift || ''}</Tag>
               </Space>
             }
             description={
               <div>
                 <div>{noveltyEquipment.active_novelty}</div>
-                {novelties.find(n => !n.is_resolved) && (
+                {activeNovelty && (
                   <div style={{ marginTop: 8 }}>
-                    <Text type="secondary">Desde: {dayjs(novelties.find(n => !n.is_resolved)!.start_date).format('DD/MM/YYYY HH:mm')}</Text>
+                    <Text type="secondary">Desde: {dayjs(activeNovelty!.start_date).format('DD/MM/YYYY HH:mm')}</Text>
                     <Text strong style={{ marginLeft: 12, color: '#ff4d4f' }}>
-                      <ClockCircleOutlined /> {getElapsedTime(novelties.find(n => !n.is_resolved)!.start_date)}
+                      <ClockCircleOutlined /> {getElapsedTime(activeNovelty!.start_date)}
                     </Text>
                   </div>
                 )}
                 {canManage && (
                   <Button type="primary" size="small" style={{ marginTop: 8 }}
-                    onClick={() => openResolveModal(novelties.find(n => !n.is_resolved)!)}>
+                    onClick={() => openResolveModal(activeNovelty!)}>
                     Resolver Novedad
                   </Button>
                 )}

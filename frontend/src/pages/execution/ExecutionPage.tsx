@@ -100,7 +100,7 @@ const ExecutionPage = () => {
 
   useEffect(() => {
     loadData();
-  }, [year, month, selectedTaeId]);
+  }, [year, month, selectedTaeId, isApprover]);
 
   const loadData = async () => {
     setLoading(true);
@@ -478,7 +478,7 @@ const ExecutionPage = () => {
           <Select
             value={year}
             onChange={setYear}
-            options={[{ value: 2024, label: '2024' }, { value: 2025, label: '2025' }, { value: 2026, label: '2026' }]}
+            options={Array.from({ length: 4 }, (_, i) => dayjs().year() - 2 + i).map(y => ({ value: y, label: String(y) }))}
             style={{ width: 100 }}
           />
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setModalOpen(true)}>
@@ -733,13 +733,21 @@ const ExecutionPage = () => {
               <Form.Item name="observation" label="Observación (opcional)">
                 <TextArea rows={2} placeholder="Agrega una observación..." />
               </Form.Item>
-              <Form.Item label={
-                <Space>
-                  <CameraOutlined />
-                  <span>Evidencias</span>
-                  {selectedActivity.requires_evidence && <Tag color="warning">Requerida</Tag>}
-                </Space>
-              }>
+              <Form.Item
+                name="evidence_files"
+                label={
+                  <Space>
+                    <CameraOutlined />
+                    <span>Evidencias</span>
+                    {selectedActivity.requires_evidence && <Tag color="warning">Requerida</Tag>}
+                  </Space>
+                }
+                rules={selectedActivity.requires_evidence ? [{
+                  validator: () => quickFileList.length > 0
+                    ? Promise.resolve()
+                    : Promise.reject(new Error('Esta actividad requiere al menos una evidencia adjunta'))
+                }] : []}
+              >
                 <Upload {...uploadProps} fileList={quickFileList} onChange={({ fileList: fl }) => setQuickFileList(fl)}>
                   <Button icon={<UploadOutlined />}>Adjuntar Evidencia</Button>
                 </Upload>
@@ -866,7 +874,7 @@ const ExecutionPage = () => {
                   ]}
                 />
               </Form.Item>
-              <Form.Item name="observation" label="Observación corregida">
+              <Form.Item name="observation" label="Observación corregida" rules={[{ required: true, message: 'Describe la corrección realizada' }]}>
                 <TextArea rows={3} placeholder="Describe la corrección..." />
               </Form.Item>
               <Form.Item name="novelty_description" label="Descripción de novedad">

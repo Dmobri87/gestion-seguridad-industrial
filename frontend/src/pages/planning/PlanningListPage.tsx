@@ -60,7 +60,7 @@ const PlanningListPage = () => {
       loadAssignableUsers();
       loadWorkGroups();
     }
-  }, [year, month]);
+  }, [year, month, isCoordinator]);
 
   const loadPlans = async () => {
     setLoading(true);

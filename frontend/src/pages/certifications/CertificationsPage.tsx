@@ -101,7 +101,8 @@ const CertificationsPage = () => {
   const handleCreate = async (values: any) => {
     try {
       const certType = certTypes.find(t => t.id === values.certification_type_id);
-      const expirationDate = dayjs(values.issue_date).add(certType?.validity_months || 12, 'month');
+      const validityMonths = certType?.validity_months ?? 12;
+      const expirationDate = dayjs(values.issue_date).add(validityMonths, 'month');
 
       await certificationsApi.create({
         ...values,

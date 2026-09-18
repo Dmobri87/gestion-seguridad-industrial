@@ -280,3 +280,7 @@ class EquipmentNovelty(Base):
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relaciones para obtener nombres sin N+1
+    reporter = relationship("User", foreign_keys=[reported_by], lazy="joined")
+    resolver = relationship("User", foreign_keys=[resolved_by], lazy="joined")

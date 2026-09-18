@@ -240,7 +240,7 @@ const EmergenciesPage = () => {
             <Select
               value={year}
               onChange={setYear}
-              options={[{ value: 2024, label: '2024' }, { value: 2025, label: '2025' }, { value: 2026, label: '2026' }]}
+              options={Array.from({ length: 4 }, (_, i) => dayjs().year() - 2 + i).map(y => ({ value: y, label: String(y) }))}
               style={{ width: 100 }}
             />
             <Button type="primary" danger icon={<PlusOutlined />} onClick={() => setModalOpen(true)}>

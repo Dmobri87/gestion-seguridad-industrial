@@ -1,4 +1,5 @@
-from pydantic import BaseModel, ConfigDict, field_validator
+from enum import Enum
+from pydantic import BaseModel, ConfigDict, field_validator, field_serializer
 from datetime import datetime, date
 from typing import Optional, List
 
@@ -40,14 +41,14 @@ class ExecutionOut(BaseModel):
 # SCHEMAS NUEVOS (API v1)
 # ==========================================
 
-class ExecutionStatusEnum:
+class ExecutionStatusEnum(str, Enum):
     COMPLETED = "Completado"
     PENDING = "Pendiente"
     WITH_NOVELTY = "Con Novedad"
     CANCELLED = "Cancelado"
 
 
-class ApprovalStatusEnum:
+class ApprovalStatusEnum(str, Enum):
     PENDING = "Pendiente"
     APPROVED = "Aprobado"
     REJECTED = "Rechazado"
@@ -61,7 +62,7 @@ class ActivityExecutionBase(BaseModel):
     """Schema base para ejecución de actividad."""
     execution_date: date
     cycle_number: int
-    status: str = ExecutionStatusEnum.COMPLETED
+    status: ExecutionStatusEnum = ExecutionStatusEnum.COMPLETED
     observation: Optional[str] = None
     novelty_description: Optional[str] = None
     location: Optional[str] = None
@@ -79,7 +80,7 @@ class ActivityExecutionCreateV1(ActivityExecutionBase):
     """Schema para crear ejecución (API v1)."""
     planned_activity_id: int
     user_id: int
-    organization_id: int
+    organization_id: Optional[int] = None
 
 
 class ActivityExecutionUpdateV1(BaseModel):
@@ -153,6 +154,15 @@ class ExecutionFileResponse(ExecutionFileBase):
 # ==========================================
 # APROBACIÓN
 # ==========================================
+
+class ExecutionCorrectionRequest(BaseModel):
+    """Schema para corregir y reenviar una ejecución rechazada."""
+    observation: Optional[str] = None
+    novelty_description: Optional[str] = None
+    status: Optional[str] = None
+    location: Optional[str] = None
+    quantity: Optional[int] = None
+
 
 class ExecutionApprovalRequest(BaseModel):
     """Schema para aprobar/rechazar ejecución."""

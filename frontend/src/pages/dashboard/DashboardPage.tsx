@@ -197,9 +197,15 @@ const DashboardPage = () => {
     setLoading(true);
     try {
       const response = await dashboardApi.getData(year, month);
-      setData(response);
+      if (response && typeof response === 'object' && response.compliance) {
+        setData(response);
+      } else {
+        console.warn('Dashboard: respuesta inesperada de la API', response);
+        message.warning('Los datos del dashboard no están disponibles');
+      }
     } catch (error) {
       console.error('Error loading dashboard:', error);
+      message.error('Error al cargar el dashboard');
     } finally {
       setLoading(false);
     }
@@ -218,7 +224,7 @@ const DashboardPage = () => {
     if (!data) return [];
     return data.compliance.monthly_trend.map((t) => ({
       month: `${t.month_name.substring(0, 3)} ${t.year}`,
-      Cumplimiento: Number(t.compliance_percentage.toFixed(1)),
+      Cumplimiento: Number((t.compliance_percentage ?? 0).toFixed(1)),
     }));
   }, [data]);
 
@@ -250,7 +256,7 @@ const DashboardPage = () => {
           <Select
             value={year}
             onChange={setYear}
-            options={[{ value: 2024, label: '2024' }, { value: 2025, label: '2025' }, { value: 2026, label: '2026' }]}
+            options={Array.from({ length: 4 }, (_, i) => dayjs().year() - 2 + i).map(y => ({ value: y, label: String(y) }))}
             style={{ width: 100 }}
           />
         </Space>

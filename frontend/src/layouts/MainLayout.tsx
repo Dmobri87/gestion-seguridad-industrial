@@ -174,8 +174,8 @@ const MainLayout = () => {
             <Space style={{ cursor: 'pointer' }}>
               <Avatar icon={<UserOutlined />} style={{ backgroundColor: '#1890ff' }} />
               <div style={{ lineHeight: 1.2 }}>
-                <Text strong style={{ display: 'block' }}>{user?.full_name}</Text>
-                <Text type="secondary" style={{ fontSize: 12 }}>{user?.role}</Text>
+                <Text strong style={{ display: 'block' }}>{user?.full_name || 'Usuario'}</Text>
+                <Text type="secondary" style={{ fontSize: 12 }}>{user?.role || '-'}</Text>
               </div>
             </Space>
           </Dropdown>

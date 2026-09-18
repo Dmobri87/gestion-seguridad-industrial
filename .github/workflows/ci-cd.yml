@@ -70,9 +70,9 @@ jobs:
         run: |
           cd backend && python -c "from app.main import app; print('Backend OK')"
 
-      - name: Run unit tests with pytest
+      - name: Run unit tests with pytest (173+ tests)
         run: |
-          cd backend && python -m pytest tests/ -v --tb=short --cov=app --cov-report=xml --cov-report=term-missing || echo "No tests found yet - skipping"
+          cd backend && python -m pytest tests/ -v --tb=short --cov=app --cov-report=xml --cov-report=term-missing
 
       - name: Check for security vulnerabilities
         run: |

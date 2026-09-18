@@ -59,7 +59,7 @@ const UsersPerformancePage = () => {
         // Obtener stats de ejecuciones
         let stats = { completed: 0, pending_approval: 0, approved: 0, rejected: 0 };
         try {
-          stats = await executionsApi.getStats(year, month);
+          stats = await executionsApi.getStats(year, month, tae.id);
         } catch (e) {
           // Ignore error
         }

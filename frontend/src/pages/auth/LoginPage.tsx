@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Form, Input, Button, Card, message, Typography, Alert, Space } from 'antd';
 import {
@@ -98,7 +98,7 @@ const LoginPage = () => {
         setPending2FA(values.email, response.dev_otp || null);
         setStep('otp');
         setOtpValues(['', '', '', '', '', '', '', '']);
-        message.info('CÃ³digo de verificaciÃ³n enviado a su email');
+        message.info('Código de verificación enviado a su email');
       } else if (response.access_token) {
         // Fallback: direct token (should not happen with mandatory 2FA)
         setAuth(response.user, response.access_token);
@@ -106,7 +106,7 @@ const LoginPage = () => {
         navigate('/dashboard');
       }
     } catch (error: any) {
-      const errorMessage = error.response?.data?.detail || 'Error al iniciar sesiÃ³n';
+      const errorMessage = error.response?.data?.detail || 'Error al iniciar sesión';
       message.error(errorMessage);
     } finally {
       setLoading(false);
@@ -125,7 +125,7 @@ const LoginPage = () => {
       message.success(`Bienvenido, ${response.user.full_name}`);
       navigate('/dashboard');
     } catch (error: any) {
-      const errorMessage = error.response?.data?.detail || 'Error al verificar el cÃ³digo';
+      const errorMessage = error.response?.data?.detail || 'Error al verificar el código';
       message.error(errorMessage);
       // Clear OTP inputs on error
       setOtpValues(['', '', '', '', '', '', '', '']);
@@ -192,7 +192,7 @@ const LoginPage = () => {
   // Resend OTP
   const handleResendOtp = async () => {
     if (!loginEmail || !loginPassword) {
-      message.error('Error interno. Vuelva a iniciar sesiÃ³n.');
+      message.error('Error interno. Vuelva a iniciar sesión.');
       handleBackToLogin();
       return;
     }
@@ -215,13 +215,13 @@ const LoginPage = () => {
             return prev - 1;
           });
         }, 1000);
-        message.success('Nuevo cÃ³digo de verificaciÃ³n enviado');
+        message.success('Nuevo código de verificación enviado');
         setTimeout(() => {
           otpInputRefs.current[0]?.focus();
         }, 100);
       }
     } catch (error: any) {
-      const errorMessage = error.response?.data?.detail || 'Error al reenviar el cÃ³digo';
+      const errorMessage = error.response?.data?.detail || 'Error al reenviar el código';
       message.error(errorMessage);
     } finally {
       setResendLoading(false);
@@ -250,7 +250,7 @@ const LoginPage = () => {
   return (
     <div className="login-container">
       <Card className="login-card" style={{ width: step === 'otp' ? 500 : 400 }}>
-        {/* â”€â”€ Step 1: Email + Password â”€â”€ */}
+        {/* ── Step 1: Email + Password ── */}
         {step === 'credentials' && (
           <>
             <div className="login-title">
@@ -309,7 +309,7 @@ const LoginPage = () => {
           </>
         )}
 
-        {/* â”€â”€ Step 2: OTP Verification â”€â”€ */}
+        {/* ── Step 2: OTP Verification ── */}
         {step === 'otp' && (
           <>
             <div style={{ textAlign: 'center', marginBottom: 24 }}>
