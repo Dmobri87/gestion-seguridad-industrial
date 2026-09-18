@@ -26,9 +26,8 @@ venv\Scripts\activate  # Windows
 # source venv/bin/activate  # Linux/Mac
 
 pip install -r requirements.txt
-python init_db.py
 python create_test_users.py
-python -m uvicorn app.main:app --reload --port 8000
+python -m uvicorn app.main:app --reload --port 8080
 ```
 
 ### Frontend
@@ -40,8 +39,8 @@ npm run dev
 
 **URLs de Desarrollo:**
 - Frontend: http://localhost:5173 o http://localhost:3001
-- Backend API: http://localhost:8000
-- Documentación API: http://localhost:8000/docs
+- Backend API: http://localhost:8080
+- Documentación API: http://localhost:8080/docs
 
 ---
 
@@ -63,7 +62,7 @@ npm run dev
 
 ### 4.1 Variables de Entorno
 
-Crear archivo `.env` en `/backend`:
+Crear archivo `.env` en la raíz del proyecto:
 
 ```env
 # Base de datos PostgreSQL
@@ -79,6 +78,7 @@ CORS_ORIGINS=https://tu-dominio.com,https://www.tu-dominio.com
 
 # Modo producción
 DEBUG=False
+RUN_DB_INIT=False
 ```
 
 ### 4.2 Compilar Frontend para Producción
@@ -128,14 +128,12 @@ Esto genera la carpeta `dist/` con los archivos estáticos.
 
 ## 5. Docker (Producción)
 
-### docker-compose.yml
+### docker-compose.prod.yml
 
 ```yaml
-version: '3.8'
-
 services:
-  db:
-    image: postgres:15
+  postgres:
+    image: postgres:15-alpine
     environment:
       POSTGRES_DB: gestion_seguridad
       POSTGRES_USER: gsuser
@@ -147,20 +145,16 @@ services:
   backend:
     build: ./backend
     ports:
-      - "8000:8000"
+      - "8080:80"
     environment:
-      - DATABASE_URL=postgresql://gsuser:gspassword@db:5432/gestion_seguridad
+      - DATABASE_URL=postgresql://gsuser:gspassword@postgres:5432/gestion_seguridad
       - SECRET_KEY=${SECRET_KEY}
+      - DEBUG=false
+      - RUN_DB_INIT=false
+    volumes:
+      - ./backend/uploads:/code/uploads
     depends_on:
-      - db
-    restart: always
-
-  frontend:
-    build: ./frontend
-    ports:
-      - "80:80"
-    depends_on:
-      - backend
+      - postgres
     restart: always
 
 volumes:
@@ -179,7 +173,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-CMD ["gunicorn", "app.main:app", "-w", "4", "-k", "uvicorn.workers.UvicornWorker", "-b", "0.0.0.0:8000"]
+CMD ["gunicorn", "app.main:app", "-w", "4", "-k", "uvicorn.workers.UvicornWorker", "-b", "0.0.0.0:80"]
 ```
 
 ### Dockerfile Frontend (`frontend/Dockerfile`)
@@ -225,19 +219,36 @@ server {
 
 ```bash
 # Construir e iniciar
-docker-compose up -d --build
+docker-compose -f docker-compose.prod.yml up -d --build
 
 # Ver logs
-docker-compose logs -f
+docker-compose -f docker-compose.prod.yml logs -f
 
 # Detener
-docker-compose down
+docker-compose -f docker-compose.prod.yml down
 
 # Reiniciar
-docker-compose restart
+docker-compose -f docker-compose.prod.yml restart
 
 # Ejecutar migraciones
-docker-compose exec backend python init_db.py
+docker-compose -f docker-compose.prod.yml exec backend alembic upgrade head
+
+---
+
+## 7. Pruebas de Carga (K6)
+
+Requiere k6 instalado en la máquina de pruebas.
+
+```bash
+cd loadtests
+k6 run k6-smoke.js
+```
+
+Para 100 usuarios simultáneos:
+
+```bash
+k6 run k6-100vus.js
+```
 ```
 
 ---

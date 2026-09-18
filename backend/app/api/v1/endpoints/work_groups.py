@@ -1,11 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 
 from app.core.database import get_db
-from app.core.dependencies import get_current_user, require_roles
+from app.core.dependencies import get_current_user, require_roles, ensure_org_access
 from app.models.user import User, UserRole
 from app.models.work_group import WorkGroup
 
@@ -70,6 +70,8 @@ class WorkGroupWithMembers(WorkGroupResponse):
 
 @router.get("/", response_model=List[WorkGroupResponse])
 async def get_work_groups(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -82,7 +84,7 @@ async def get_work_groups(
     if current_user.organization_id:
         query = query.filter(WorkGroup.organization_id == current_user.organization_id)
 
-    groups = query.filter(WorkGroup.is_active == True).order_by(WorkGroup.name).all()
+    groups = query.filter(WorkGroup.is_active == True).order_by(WorkGroup.name).offset(skip).limit(limit).all()
 
     result = []
     for g in groups:
@@ -117,6 +119,8 @@ async def get_work_group(
 
     if not group:
         raise HTTPException(status_code=404, detail="Grupo no encontrado")
+
+    ensure_org_access(current_user, group, "grupo de trabajo")
 
     members = [
         WorkGroupMember(
@@ -169,6 +173,11 @@ async def create_work_group(
                 detail="Este usuario ya es coordinador de otro grupo de trabajo"
             )
 
+        coord_user = db.query(User).filter(User.id == data.coordinator_id).first()
+        if not coord_user:
+            raise HTTPException(status_code=404, detail="Coordinador no encontrado")
+        ensure_org_access(current_user, coord_user, "coordinador")
+
     group = WorkGroup(
         name=data.name,
         code=data.code,
@@ -207,6 +216,7 @@ async def update_work_group(
     group = db.query(WorkGroup).filter(WorkGroup.id == group_id).first()
     if not group:
         raise HTTPException(status_code=404, detail="Grupo no encontrado")
+    ensure_org_access(current_user, group, "grupo de trabajo")
 
     # Validar que el coordinador no esté asignado a otro grupo
     if data.coordinator_id is not None and data.coordinator_id:
@@ -220,6 +230,11 @@ async def update_work_group(
                 status_code=400,
                 detail="Este usuario ya es coordinador de otro grupo de trabajo"
             )
+
+        coord_user = db.query(User).filter(User.id == data.coordinator_id).first()
+        if not coord_user:
+            raise HTTPException(status_code=404, detail="Coordinador no encontrado")
+        ensure_org_access(current_user, coord_user, "coordinador")
 
     update_data = data.model_dump(exclude_unset=True)
     for field, value in update_data.items():
@@ -263,10 +278,12 @@ async def add_member_to_group(
     group = db.query(WorkGroup).filter(WorkGroup.id == group_id).first()
     if not group:
         raise HTTPException(status_code=404, detail="Grupo no encontrado")
+    ensure_org_access(current_user, group, "grupo de trabajo")
 
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    ensure_org_access(current_user, user, "usuario")
 
     user.work_group_id = group_id
     db.commit()
@@ -285,6 +302,7 @@ async def remove_member_from_group(
     user = db.query(User).filter(User.id == user_id, User.work_group_id == group_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado en este grupo")
+    ensure_org_access(current_user, user, "usuario")
 
     user.work_group_id = None
     db.commit()

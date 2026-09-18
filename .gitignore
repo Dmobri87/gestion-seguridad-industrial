@@ -83,3 +83,8 @@ UsersdeiviDocumentsgestion_proyectosopenapi_temp.json
 *.db-shm
 *.db-wal
 *.db-journal
+# --- Hermes: secretos de produccion NUNCA se versionan ---
+.env.production
+.env.production.local
+!.env.production.template
+!.env.production.example

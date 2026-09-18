@@ -1,11 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 
 from app.core.database import get_db
-from app.core.dependencies import get_current_user, require_roles
+from app.core.dependencies import get_current_user, require_roles, ensure_org_access
+from app.core.audit import log_audit
 from app.models.user import User, UserRole
 from app.models.activity_category import ActivityCategory, ActivityTemplate
+from sqlalchemy import or_
 from app.schemas.planning import (
     ActivityTemplateResponse,
     ActivityTemplateCreate,
@@ -21,6 +23,8 @@ async def get_activity_templates(
     category_id: Optional[int] = None,
     is_critical: Optional[bool] = None,
     search: Optional[str] = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(200, ge=1, le=1000),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -30,6 +34,13 @@ async def get_activity_templates(
     query = db.query(ActivityTemplate).options(
         joinedload(ActivityTemplate.category)
     ).filter(ActivityTemplate.is_active == True)
+    if current_user.organization_id:
+        query = query.filter(
+            or_(
+                ActivityTemplate.organization_id == None,
+                ActivityTemplate.organization_id == current_user.organization_id
+            )
+        )
 
     if category_id:
         query = query.filter(ActivityTemplate.category_id == category_id)
@@ -47,7 +58,7 @@ async def get_activity_templates(
     templates = query.order_by(
         ActivityTemplate.category_id,
         ActivityTemplate.display_order
-    ).all()
+    ).offset(skip).limit(limit).all()
 
     result = []
     for tmpl in templates:
@@ -76,13 +87,26 @@ async def get_templates_grouped_by_category(
     ).filter(
         ActivityCategory.is_active == True
     ).order_by(ActivityCategory.display_order).all()
+    if current_user.organization_id:
+        categories = db.query(ActivityCategory).options(
+            joinedload(ActivityCategory.activity_templates)
+        ).filter(
+            ActivityCategory.is_active == True,
+            or_(
+                ActivityCategory.organization_id == None,
+                ActivityCategory.organization_id == current_user.organization_id
+            )
+        ).order_by(ActivityCategory.display_order).all()
 
     result = {}
+    allowed_org_id = current_user.organization_id
     for cat in categories:
         templates = [
             ActivityTemplateResponse.model_validate(tmpl).model_dump()
             for tmpl in cat.activity_templates
-            if tmpl.is_active
+            if tmpl.is_active and (
+                allowed_org_id is None or tmpl.organization_id is None or tmpl.organization_id == allowed_org_id
+            )
         ]
         result[cat.code] = {
             "id": cat.id,
@@ -114,6 +138,7 @@ async def get_activity_template(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Plantilla no encontrada"
         )
+    ensure_org_access(current_user, template, "plantilla", allow_global=True)
 
     return {
         **ActivityTemplateResponse.model_validate(template).model_dump(),
@@ -126,6 +151,7 @@ async def get_activity_template(
 @router.post("/", response_model=ActivityTemplateResponse)
 async def create_activity_template(
     template_data: ActivityTemplateCreate,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -142,6 +168,7 @@ async def create_activity_template(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Categoría no encontrada"
         )
+    ensure_org_access(current_user, category, "categoría", allow_global=True)
 
     # Verificar código único si se proporciona
     if template_data.code:
@@ -154,10 +181,23 @@ async def create_activity_template(
                 detail="El código de actividad ya existe"
             )
 
-    template = ActivityTemplate(**template_data.model_dump())
+    organization_id = template_data.organization_id
+    if current_user.organization_id:
+        organization_id = current_user.organization_id
+    template = ActivityTemplate(**template_data.model_dump(), organization_id=organization_id)
     db.add(template)
     db.commit()
     db.refresh(template)
+
+    log_audit(
+        db=None,
+        action="ACTIVITY_TEMPLATE_CREATED",
+        resource_type="activity_templates",
+        resource_id=template.id,
+        current_user=current_user,
+        request=request,
+        description="Plantilla creada",
+    )
 
     return template
 
@@ -166,6 +206,7 @@ async def create_activity_template(
 async def update_activity_template(
     template_id: int,
     template_data: ActivityTemplateUpdate,
+    request: Request,
     current_user: User = Depends(require_roles([UserRole.ADMIN.value, UserRole.COORDINATOR.value])),
     db: Session = Depends(get_db)
 ):
@@ -181,6 +222,7 @@ async def update_activity_template(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Plantilla no encontrada"
         )
+    ensure_org_access(current_user, template, "plantilla")
 
     update_data = template_data.model_dump(exclude_unset=True)
 
@@ -194,6 +236,7 @@ async def update_activity_template(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Categoría no encontrada"
             )
+        ensure_org_access(current_user, category, "categoría", allow_global=True)
 
     # Verificar código único si se cambia
     if "code" in update_data and update_data["code"] != template.code:
@@ -212,12 +255,22 @@ async def update_activity_template(
 
     db.commit()
     db.refresh(template)
+    log_audit(
+        db=None,
+        action="ACTIVITY_TEMPLATE_UPDATED",
+        resource_type="activity_templates",
+        resource_id=template.id,
+        current_user=current_user,
+        request=request,
+        description="Plantilla actualizada",
+    )
     return template
 
 
 @router.delete("/{template_id}")
 async def delete_activity_template(
     template_id: int,
+    request: Request,
     current_user: User = Depends(require_roles([UserRole.ADMIN.value])),
     db: Session = Depends(get_db)
 ):
@@ -233,7 +286,17 @@ async def delete_activity_template(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Plantilla no encontrada"
         )
+    ensure_org_access(current_user, template, "plantilla")
 
     template.is_active = False
     db.commit()
+    log_audit(
+        db=None,
+        action="ACTIVITY_TEMPLATE_DELETED",
+        resource_type="activity_templates",
+        resource_id=template.id,
+        current_user=current_user,
+        request=request,
+        description="Plantilla desactivada",
+    )
     return {"message": "Plantilla desactivada"}

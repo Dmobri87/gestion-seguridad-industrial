@@ -111,3 +111,39 @@ def get_coordinator_user(
             detail="Se requiere rol de Coordinador o superior"
         )
     return current_user
+
+
+def ensure_org_access(
+    current_user: User,
+    resource,
+    resource_name: str = "recurso",
+    allow_global: bool = False
+):
+    """
+    Verifica que el recurso pertenezca a la misma organización del usuario.
+    Si allow_global es True, permite recursos con organization_id = None.
+    """
+    if current_user.organization_id:
+        org_id = getattr(resource, "organization_id", None)
+        if org_id is None and allow_global:
+            return
+        if org_id != current_user.organization_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"No tienes permiso para acceder a este {resource_name}"
+            )
+
+
+def ensure_org_id(
+    current_user: User,
+    org_id: int,
+    resource_name: str = "recurso"
+):
+    """
+    Verifica que el organization_id enviado coincida con el del usuario.
+    """
+    if current_user.organization_id and org_id != current_user.organization_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"No tienes permiso para asignar este {resource_name}"
+        )

@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 
 from app.core.database import get_db
-from app.core.dependencies import get_current_user, require_roles
+from app.core.dependencies import get_current_user, require_roles, ensure_org_access
 from app.models.user import User, UserRole
 from app.models.organization import Organization
 from app.models.department import Department
@@ -70,6 +70,12 @@ async def get_organization(
     """
     Obtener organización por ID.
     """
+    if current_user.role != UserRole.ADMIN.value and current_user.organization_id != org_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para ver esta organización"
+        )
+
     org = db.query(Organization).filter(Organization.id == org_id).first()
 
     if not org:
@@ -153,6 +159,12 @@ async def get_departments(
 
     # Filtrar por organización
     org_id = organization_id or current_user.organization_id
+    if organization_id and current_user.organization_id and current_user.role != UserRole.ADMIN.value:
+        if organization_id != current_user.organization_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tienes permiso para consultar esta organización"
+            )
     if org_id:
         query = query.filter(Department.organization_id == org_id)
 
@@ -176,6 +188,7 @@ async def get_department(
             detail="Departamento no encontrado"
         )
 
+    ensure_org_access(current_user, dept, "departamento")
     return dept
 
 
@@ -188,6 +201,13 @@ async def create_department(
     """
     Crear departamento.
     """
+    if current_user.role != UserRole.ADMIN.value and current_user.organization_id:
+        if dept_data.organization_id != current_user.organization_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tienes permiso para asignar este departamento"
+            )
+
     dept = Department(**dept_data.model_dump())
     db.add(dept)
     db.commit()
@@ -213,6 +233,8 @@ async def update_department(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Departamento no encontrado"
         )
+
+    ensure_org_access(current_user, dept, "departamento")
 
     update_data = dept_data.model_dump(exclude_unset=True)
     for field, value in update_data.items():

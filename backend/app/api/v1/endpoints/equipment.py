@@ -1,11 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import date, datetime
 from pydantic import BaseModel, ConfigDict
 
 from app.core.database import get_db
-from app.core.dependencies import get_current_user, require_roles
+from app.core.dependencies import get_current_user, require_roles, ensure_org_access
+from app.core.audit import log_audit
 from app.models.user import User, UserRole
 from app.models.equipment import Equipment, EquipmentCategory, EquipmentNovelty, EquipmentStatus
 
@@ -247,6 +248,8 @@ async def get_equipment(
     category_id: Optional[int] = None,
     status: Optional[str] = None,
     search: Optional[str] = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(200, ge=1, le=1000),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -264,7 +267,7 @@ async def get_equipment(
             (Equipment.code.ilike(f"%{search}%"))
         )
 
-    items = query.filter(Equipment.is_active == True).all()
+    items = query.filter(Equipment.is_active == True).offset(skip).limit(limit).all()
     return [_build_equipment_response(item, db) for item in items]
 
 
@@ -278,12 +281,14 @@ async def get_equipment_detail(
     equipment = db.query(Equipment).filter(Equipment.id == equipment_id).first()
     if not equipment:
         raise HTTPException(status_code=404, detail="Equipo no encontrado")
+    ensure_org_access(current_user, equipment, "equipo")
     return _build_equipment_response(equipment, db)
 
 
 @router.post("/", response_model=EquipmentResponse)
 async def create_equipment(
     data: EquipmentCreate,
+    request: Request,
     current_user: User = Depends(require_roles([UserRole.ADMIN.value, UserRole.COORDINATOR.value])),
     db: Session = Depends(get_db)
 ):
@@ -299,6 +304,15 @@ async def create_equipment(
     db.add(equipment)
     db.commit()
     db.refresh(equipment)
+    log_audit(
+        db=None,
+        action="EQUIPMENT_CREATED",
+        resource_type="equipment",
+        resource_id=equipment.id,
+        current_user=current_user,
+        request=request,
+        description="Equipo creado",
+    )
     return _build_equipment_response(equipment, db)
 
 
@@ -306,6 +320,7 @@ async def create_equipment(
 async def update_equipment(
     equipment_id: int,
     data: EquipmentUpdate,
+    request: Request,
     current_user: User = Depends(require_roles([UserRole.ADMIN.value, UserRole.COORDINATOR.value])),
     db: Session = Depends(get_db)
 ):
@@ -315,6 +330,7 @@ async def update_equipment(
     ).first()
     if not equipment:
         raise HTTPException(status_code=404, detail="Equipo no encontrado")
+    ensure_org_access(current_user, equipment, "equipo")
 
     update_data = data.model_dump(exclude_unset=True)
 
@@ -332,6 +348,15 @@ async def update_equipment(
 
     db.commit()
     db.refresh(equipment)
+    log_audit(
+        db=None,
+        action="EQUIPMENT_UPDATED",
+        resource_type="equipment",
+        resource_id=equipment.id,
+        current_user=current_user,
+        request=request,
+        description="Equipo actualizado",
+    )
     return _build_equipment_response(equipment, db)
 
 
@@ -349,6 +374,7 @@ async def get_equipment_novelties(
     equipment = db.query(Equipment).filter(Equipment.id == equipment_id).first()
     if not equipment:
         raise HTTPException(status_code=404, detail="Equipo no encontrado")
+    ensure_org_access(current_user, equipment, "equipo")
 
     novelties = db.query(EquipmentNovelty).filter(
         EquipmentNovelty.equipment_id == equipment_id
@@ -372,6 +398,7 @@ async def get_equipment_novelties(
 async def create_equipment_novelty(
     equipment_id: int,
     data: NoveltyCreate,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -381,6 +408,7 @@ async def create_equipment_novelty(
     ).first()
     if not equipment:
         raise HTTPException(status_code=404, detail="Equipo no encontrado")
+    ensure_org_access(current_user, equipment, "equipo")
 
     # Guardar estado previo
     previous_status = equipment.status
@@ -419,6 +447,15 @@ async def create_equipment_novelty(
 
     resp = NoveltyResponse.model_validate(novelty)
     resp.reporter_name = current_user.full_name
+    log_audit(
+        db=None,
+        action="EQUIPMENT_NOVELTY_CREATED",
+        resource_type="equipment_novelties",
+        resource_id=novelty.id,
+        current_user=current_user,
+        request=request,
+        description="Novedad de equipo registrada",
+    )
     return resp
 
 
@@ -427,6 +464,7 @@ async def resolve_equipment_novelty(
     equipment_id: int,
     novelty_id: int,
     data: NoveltyResolve,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -440,6 +478,8 @@ async def resolve_equipment_novelty(
         raise HTTPException(status_code=404, detail="Novedad no encontrada o ya resuelta")
 
     equipment = db.query(Equipment).filter(Equipment.id == equipment_id).first()
+    if equipment:
+        ensure_org_access(current_user, equipment, "equipo")
 
     # Resolver la novedad
     novelty.is_resolved = True
@@ -462,4 +502,13 @@ async def resolve_equipment_novelty(
     reporter = db.query(User).filter(User.id == novelty.reported_by).first()
     resp.reporter_name = reporter.full_name if reporter else ""
     resp.resolver_name = current_user.full_name
+    log_audit(
+        db=None,
+        action="EQUIPMENT_NOVELTY_RESOLVED",
+        resource_type="equipment_novelties",
+        resource_id=novelty.id,
+        current_user=current_user,
+        request=request,
+        description="Novedad de equipo resuelta",
+    )
     return resp

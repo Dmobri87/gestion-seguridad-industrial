@@ -6,11 +6,14 @@ from collections import defaultdict
 import time
 import secrets
 import logging
+import os
 
 from app.core.database import get_db
 from app.core.security import verify_password, create_access_token, get_password_hash, needs_rehash
+from app.core.audit import log_audit
 from app.core.dependencies import get_current_user, get_admin_user
 from app.core.email import send_otp_email, is_smtp_configured
+from app.core.ratelimit import check_rate_limit_redis
 from app.models.user import User
 from app.schemas.user import (
     UserLogin, Token, UserResponse, PasswordChange, PasswordReset,
@@ -20,6 +23,8 @@ from app.schemas.user import (
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+# Determinar si estamos en modo debug
+DEBUG = os.getenv("DEBUG", "False").lower() in ("true", "1", "yes")
 # ─── Rate limiting simple para login ───
 _login_attempts: dict = defaultdict(list)
 MAX_LOGIN_ATTEMPTS = 5
@@ -36,6 +41,12 @@ OTP_EXPIRATION_MINUTES = 5
 
 def _check_rate_limit(identifier: str):
     """Verifica rate limit por IP/email. Máximo 5 intentos cada 5 minutos."""
+    if not check_rate_limit_redis(f"rl:login:{identifier}", MAX_LOGIN_ATTEMPTS, LOGIN_WINDOW_SECONDS):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Demasiados intentos de inicio de sesión. Intente de nuevo en 5 minutos."
+        )
+
     now = time.time()
     # Limpiar intentos viejos
     _login_attempts[identifier] = [t for t in _login_attempts[identifier] if now - t < LOGIN_WINDOW_SECONDS]
@@ -49,6 +60,12 @@ def _check_rate_limit(identifier: str):
 
 def _check_otp_rate_limit(identifier: str):
     """Verifica rate limit para intentos de OTP. Máximo 5 intentos cada 5 minutos."""
+    if not check_rate_limit_redis(f"rl:otp:{identifier}", MAX_OTP_ATTEMPTS, OTP_WINDOW_SECONDS):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Demasiados intentos de verificación. Intente de nuevo en 5 minutos."
+        )
+
     now = time.time()
     _otp_attempts[identifier] = [t for t in _otp_attempts[identifier] if now - t < OTP_WINDOW_SECONDS]
     if len(_otp_attempts[identifier]) >= MAX_OTP_ATTEMPTS:
@@ -84,6 +101,15 @@ async def login(
 
     if not user:
         logger.warning("Login fallido - email no encontrado: %s desde IP: %s", form_data.username, client_ip)
+        log_audit(
+            db=None,
+            action="LOGIN_FAILED",
+            resource_type="auth",
+            resource_id=None,
+            current_user=None,
+            request=request,
+            description=f"Login fallido - email no encontrado: {form_data.username}",
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Email o contraseña incorrectos",
@@ -93,6 +119,15 @@ async def login(
     # Verificar contraseña
     if not verify_password(form_data.password, user.hashed_password):
         logger.warning("Login fallido - contraseña incorrecta para: %s desde IP: %s", form_data.username, client_ip)
+        log_audit(
+            db=None,
+            action="LOGIN_FAILED",
+            resource_type="auth",
+            resource_id=user.id,
+            current_user=None,
+            request=request,
+            description=f"Login fallido - contraseña incorrecta para: {form_data.username}",
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Email o contraseña incorrectos",
@@ -102,6 +137,15 @@ async def login(
     # Verificar si el usuario está activo
     if not user.is_active:
         logger.warning("Login fallido - usuario desactivado: %s", form_data.username)
+        log_audit(
+            db=None,
+            action="LOGIN_BLOCKED",
+            resource_type="auth",
+            resource_id=user.id,
+            current_user=None,
+            request=request,
+            description=f"Login bloqueado - usuario desactivado: {form_data.username}",
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Usuario desactivado"
@@ -139,6 +183,15 @@ async def login(
         "OTP generado para %s desde IP: %s (email enviado: %s)",
         user.email, client_ip, email_sent
     )
+    log_audit(
+        db=None,
+        action="OTP_SENT",
+        resource_type="auth",
+        resource_id=user.id,
+        current_user=user,
+        request=request,
+        description="OTP generado y enviado",
+    )
 
     # Construir respuesta
     response_data = {
@@ -147,7 +200,7 @@ async def login(
     }
 
     # En modo desarrollo (SMTP no configurado), incluir el OTP en la respuesta
-    if not is_smtp_configured():
+    if DEBUG and not is_smtp_configured():
         response_data["dev_otp"] = otp_code
 
     return response_data
@@ -173,6 +226,15 @@ async def verify_otp(
 
     if not user:
         logger.warning("Verify OTP - usuario no encontrado: %s desde IP: %s", otp_data.email, client_ip)
+        log_audit(
+            db=None,
+            action="OTP_VERIFY_FAILED",
+            resource_type="auth",
+            resource_id=None,
+            current_user=None,
+            request=request,
+            description=f"OTP verify fallido - usuario no encontrado: {otp_data.email}",
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Código de verificación inválido o expirado"
@@ -181,6 +243,15 @@ async def verify_otp(
     # Verificar que el usuario tiene un OTP pendiente
     if not user.otp_code or not user.otp_expires_at:
         logger.warning("Verify OTP - sin OTP pendiente para: %s desde IP: %s", otp_data.email, client_ip)
+        log_audit(
+            db=None,
+            action="OTP_VERIFY_FAILED",
+            resource_type="auth",
+            resource_id=user.id,
+            current_user=user,
+            request=request,
+            description="OTP verify fallido - sin OTP pendiente",
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Código de verificación inválido o expirado"
@@ -203,6 +274,15 @@ async def verify_otp(
         except Exception:
             db.rollback()
         logger.warning("Verify OTP - código expirado para: %s desde IP: %s", otp_data.email, client_ip)
+        log_audit(
+            db=None,
+            action="OTP_VERIFY_FAILED",
+            resource_type="auth",
+            resource_id=user.id,
+            current_user=user,
+            request=request,
+            description="OTP expirado",
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Código de verificación inválido o expirado"
@@ -219,6 +299,15 @@ async def verify_otp(
         except Exception:
             db.rollback()
         logger.warning("Verify OTP - demasiados intentos para: %s desde IP: %s", otp_data.email, client_ip)
+        log_audit(
+            db=None,
+            action="OTP_VERIFY_BLOCKED",
+            resource_type="auth",
+            resource_id=user.id,
+            current_user=user,
+            request=request,
+            description="OTP bloqueado por demasiados intentos",
+        )
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Demasiados intentos fallidos. Solicite un nuevo código de verificación."
@@ -234,6 +323,15 @@ async def verify_otp(
         logger.warning(
             "Verify OTP - código incorrecto para: %s (intento %d) desde IP: %s",
             otp_data.email, user.otp_attempts, client_ip
+        )
+        log_audit(
+            db=None,
+            action="OTP_VERIFY_FAILED",
+            resource_type="auth",
+            resource_id=user.id,
+            current_user=user,
+            request=request,
+            description="OTP inválido",
         )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -268,6 +366,15 @@ async def verify_otp(
     )
 
     logger.info("Login 2FA exitoso: %s desde IP: %s", user.email, client_ip)
+    log_audit(
+        db=None,
+        action="LOGIN_SUCCESS",
+        resource_type="auth",
+        resource_id=user.id,
+        current_user=user,
+        request=request,
+        description="Login 2FA exitoso",
+    )
 
     return {
         "access_token": access_token,
@@ -280,6 +387,7 @@ async def verify_otp(
 @router.post("/register", response_model=UserResponse)
 async def register(
     user_data: UserCreateV1,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_admin_user)
 ):
@@ -323,6 +431,15 @@ async def register(
         )
 
     logger.info("Usuario creado: %s por admin: %s", new_user.email, current_user.email)
+    log_audit(
+        db=None,
+        action="USER_CREATED",
+        resource_type="users",
+        resource_id=new_user.id,
+        current_user=current_user,
+        request=request,
+        description=f"Usuario creado: {new_user.email}",
+    )
     return new_user
 
 
@@ -368,6 +485,15 @@ async def update_current_user_profile(
         )
 
     logger.info("Perfil actualizado para usuario: %s", current_user.email)
+    log_audit(
+        db=None,
+        action="PROFILE_UPDATED",
+        resource_type="users",
+        resource_id=current_user.id,
+        current_user=current_user,
+        request=None,
+        description="Perfil actualizado",
+    )
     return current_user
 
 
@@ -400,6 +526,15 @@ async def change_password(
         )
 
     logger.info("Contraseña cambiada para usuario: %s", current_user.email)
+    log_audit(
+        db=None,
+        action="PASSWORD_CHANGED",
+        resource_type="users",
+        resource_id=current_user.id,
+        current_user=current_user,
+        request=None,
+        description="Contraseña actualizada",
+    )
     return {"message": "Contraseña actualizada correctamente"}
 
 

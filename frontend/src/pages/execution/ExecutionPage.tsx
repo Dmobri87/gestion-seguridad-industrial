@@ -78,6 +78,7 @@ const ExecutionPage = () => {
   const [selectedExecutionId, setSelectedExecutionId] = useState<number | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewImage, setPreviewImage] = useState('');
+  const [fileObjectUrls, setFileObjectUrls] = useState<Record<number, string>>({});
 
   const isApprover = ['Administrador', 'Coordinador', 'Supervisor'].includes(user?.role || '');
 
@@ -223,6 +224,14 @@ const ExecutionPage = () => {
       await executionsApi.deleteFile(selectedExecutionId, fileId);
       message.success('Archivo eliminado');
       setEvidenceFiles(evidenceFiles.filter(f => f.id !== fileId));
+      if (fileObjectUrls[fileId]) {
+        URL.revokeObjectURL(fileObjectUrls[fileId]);
+        setFileObjectUrls((prev) => {
+          const next = { ...prev };
+          delete next[fileId];
+          return next;
+        });
+      }
     } catch (error: any) {
       message.error(error.response?.data?.detail || 'Error al eliminar');
     }
@@ -647,7 +656,13 @@ const ExecutionPage = () => {
       <Modal
         title={<Space><PaperClipOutlined /><span>Evidencias Adjuntas</span></Space>}
         open={evidenceModalOpen}
-        onCancel={() => { setEvidenceModalOpen(false); setEvidenceFiles([]); setSelectedExecutionId(null); }}
+        onCancel={() => {
+          setEvidenceModalOpen(false);
+          setEvidenceFiles([]);
+          setSelectedExecutionId(null);
+          Object.values(fileObjectUrls).forEach((u) => URL.revokeObjectURL(u));
+          setFileObjectUrls({});
+        }}
         footer={null}
         width={600}
       >
@@ -671,12 +686,12 @@ const ExecutionPage = () => {
                   isImageFile(file.file_type) ? (
                     <Tooltip title="Ver imagen" key="preview">
                       <Button type="link" size="small" icon={<EyeOutlined />}
-                        onClick={() => { setPreviewImage(file.file_url); setPreviewOpen(true); }} />
+                        onClick={() => handlePreviewImage(file)} />
                     </Tooltip>
                   ) : null,
                   <Tooltip title="Descargar" key="download">
                     <Button type="link" size="small" icon={<FileTextOutlined />}
-                      onClick={() => window.open(file.file_url, '_blank')} />
+                      onClick={() => handleDownloadFile(file)} />
                   </Tooltip>,
                   <Tooltip title="Eliminar" key="delete">
                     <Button type="link" danger size="small" icon={<DeleteOutlined />}
@@ -687,9 +702,10 @@ const ExecutionPage = () => {
                 <List.Item.Meta
                   avatar={
                     isImageFile(file.file_type) ? (
-                      <Image src={file.file_url} width={48} height={48}
-                        style={{ objectFit: 'cover', borderRadius: 4 }} preview={false}
-                        fallback="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mN88P/BfwAJhAPjM9uBIwAAAABJRU5ErkJggg==" />
+                      <div style={{ width: 48, height: 48, display: 'flex', alignItems: 'center',
+                        justifyContent: 'center', background: '#f0f0f0', borderRadius: 4 }}>
+                        <CameraOutlined style={{ fontSize: 22, color: '#999' }} />
+                      </div>
                     ) : (
                       <div style={{ width: 48, height: 48, display: 'flex', alignItems: 'center',
                         justifyContent: 'center', background: '#f0f0f0', borderRadius: 4 }}>
@@ -720,3 +736,36 @@ const ExecutionPage = () => {
 };
 
 export default ExecutionPage;
+  const getOrCreateObjectUrl = async (fileId: number) => {
+    if (fileObjectUrls[fileId]) return fileObjectUrls[fileId];
+    const blob = await executionsApi.downloadFile(fileId);
+    const url = URL.createObjectURL(blob);
+    setFileObjectUrls((prev) => ({ ...prev, [fileId]: url }));
+    return url;
+  };
+
+  const handlePreviewImage = async (file: EvidenceFile) => {
+    try {
+      const url = await getOrCreateObjectUrl(file.id);
+      setPreviewImage(url);
+      setPreviewOpen(true);
+    } catch (error) {
+      message.error('No se pudo cargar la imagen');
+    }
+  };
+
+  const handleDownloadFile = async (file: EvidenceFile) => {
+    try {
+      const blob = await executionsApi.downloadFile(file.id);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = file.file_name || 'archivo';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      message.error('No se pudo descargar el archivo');
+    }
+  };

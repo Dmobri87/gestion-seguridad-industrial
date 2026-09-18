@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import date, datetime
 
 from app.core.database import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, ensure_org_access
+from app.core.audit import log_audit
 from app.models.user import User
 from app.models.emergency import Emergency, EmergencyType, EmergencyStatus
 from pydantic import BaseModel, ConfigDict
@@ -49,13 +50,15 @@ class EmergencyResponse(BaseModel):
 
 @router.get("/types", response_model=List[EmergencyTypeResponse])
 async def get_emergency_types(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(200, ge=1, le=1000),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Listar tipos de emergencias."""
     types = db.query(EmergencyType).filter(
         EmergencyType.is_active == True
-    ).order_by(EmergencyType.display_order).all()
+    ).order_by(EmergencyType.display_order).offset(skip).limit(limit).all()
     return types
 
 
@@ -96,6 +99,7 @@ async def get_emergencies(
 @router.post("/", response_model=EmergencyResponse)
 async def create_emergency(
     emergency_data: EmergencyCreate,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -123,12 +127,23 @@ async def create_emergency(
     db.commit()
     db.refresh(emergency)
 
+    log_audit(
+        db=None,
+        action="EMERGENCY_CREATED",
+        resource_type="emergencies",
+        resource_id=emergency.id,
+        current_user=current_user,
+        request=request,
+        description="Emergencia registrada",
+    )
+
     return emergency
 
 
 @router.post("/{emergency_id}/arrival")
 async def register_arrival(
     emergency_id: int,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -137,6 +152,7 @@ async def register_arrival(
 
     if not emergency:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Emergencia no encontrada")
+    ensure_org_access(current_user, emergency, "emergencia")
 
     now = datetime.utcnow()
     emergency.arrival_at = now
@@ -150,6 +166,16 @@ async def register_arrival(
 
     db.commit()
 
+    log_audit(
+        db=None,
+        action="EMERGENCY_ARRIVAL",
+        resource_type="emergencies",
+        resource_id=emergency.id,
+        current_user=current_user,
+        request=request,
+        description="Llegada registrada",
+    )
+
     return {
         "message": "Llegada registrada",
         "response_time_minutes": emergency.response_time_minutes
@@ -161,6 +187,7 @@ async def close_emergency(
     emergency_id: int,
     actions_taken: str,
     result: str,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -169,6 +196,7 @@ async def close_emergency(
 
     if not emergency:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Emergencia no encontrada")
+    ensure_org_access(current_user, emergency, "emergencia")
 
     emergency.status = EmergencyStatus.CLOSED.value
     emergency.closed_at = datetime.utcnow()
@@ -177,6 +205,16 @@ async def close_emergency(
     emergency.result = result
 
     db.commit()
+
+    log_audit(
+        db=None,
+        action="EMERGENCY_CLOSED",
+        resource_type="emergencies",
+        resource_id=emergency.id,
+        current_user=current_user,
+        request=request,
+        description="Emergencia cerrada",
+    )
 
     return {"message": "Emergencia cerrada correctamente"}
 

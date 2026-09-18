@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import and_
 from typing import List, Optional
@@ -6,7 +6,8 @@ from datetime import date, timedelta
 import calendar
 
 from app.core.database import get_db
-from app.core.dependencies import get_current_user, require_roles
+from app.core.dependencies import get_current_user, require_roles, ensure_org_access
+from app.core.audit import log_audit
 from app.models.user import User, UserRole
 from app.models.planning import MonthlyPlan, PlanningCycle, PlannedActivity, PlanStatus
 from app.models.activity_category import ActivityTemplate
@@ -92,6 +93,7 @@ async def get_monthly_plan(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Plan no encontrado"
         )
+    ensure_org_access(current_user, plan, "plan")
 
     # Construir respuesta con actividades detalladas
     planned_activities = []
@@ -124,6 +126,7 @@ async def get_monthly_plan(
 @router.post("/plans", response_model=MonthlyPlanResponse)
 async def create_monthly_plan(
     plan_data: MonthlyPlanCreate,
+    request: Request,
     current_user: User = Depends(require_roles([UserRole.ADMIN.value, UserRole.COORDINATOR.value])),
     db: Session = Depends(get_db)
 ):
@@ -131,6 +134,17 @@ async def create_monthly_plan(
     Crear nuevo plan mensual para un TAE.
     Solo Coordinadores y Administradores.
     """
+    if current_user.organization_id and plan_data.organization_id != current_user.organization_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para crear planes en esta organización"
+        )
+
+    user = db.query(User).filter(User.id == plan_data.user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    ensure_org_access(current_user, user, "usuario")
+
     # Verificar que no exista plan para este usuario/mes
     existing = db.query(MonthlyPlan).filter(
         and_(
@@ -165,6 +179,16 @@ async def create_monthly_plan(
 
     db.commit()
     db.refresh(plan)
+
+    log_audit(
+        db=None,
+        action="PLAN_CREATED",
+        resource_type="monthly_plans",
+        resource_id=plan.id,
+        current_user=current_user,
+        request=request,
+        description="Plan mensual creado",
+    )
 
     return plan
 
@@ -220,10 +244,18 @@ async def bulk_create_monthly_plans(
     details = []
 
     # Validar que los usuarios existen y están activos
-    users = db.query(User).filter(
+    users_query = db.query(User).filter(
         User.id.in_(bulk_data.user_ids),
         User.is_active == True
-    ).all()
+    )
+    if current_user.organization_id:
+        if bulk_data.organization_id != current_user.organization_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tienes permiso para crear planes en esta organización"
+            )
+        users_query = users_query.filter(User.organization_id == current_user.organization_id)
+    users = users_query.all()
     valid_user_ids = {u.id for u in users}
     user_names = {u.id: u.full_name for u in users}
 
@@ -322,6 +354,7 @@ async def update_monthly_plan(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Plan no encontrado"
         )
+    ensure_org_access(current_user, plan, "plan")
 
     update_data = plan_data.model_dump(exclude_unset=True)
     for field, value in update_data.items():
@@ -336,6 +369,7 @@ async def update_monthly_plan(
 @router.post("/plans/{plan_id}/approve")
 async def approve_monthly_plan(
     plan_id: int,
+    request: Request,
     current_user: User = Depends(require_roles([UserRole.ADMIN.value, UserRole.COORDINATOR.value])),
     db: Session = Depends(get_db)
 ):
@@ -351,6 +385,7 @@ async def approve_monthly_plan(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Plan no encontrado"
         )
+    ensure_org_access(current_user, plan, "plan")
 
     if plan.status != PlanStatus.DRAFT.value:
         raise HTTPException(
@@ -364,6 +399,16 @@ async def approve_monthly_plan(
 
     db.commit()
 
+    log_audit(
+        db=None,
+        action="PLAN_APPROVED",
+        resource_type="monthly_plans",
+        resource_id=plan.id,
+        current_user=current_user,
+        request=request,
+        description="Plan mensual aprobado",
+    )
+
     return {"message": "Plan aprobado correctamente"}
 
 
@@ -375,6 +420,7 @@ async def approve_monthly_plan(
 async def add_planned_activity(
     plan_id: int,
     activity_data: PlannedActivityCreate,
+    request: Request,
     current_user: User = Depends(require_roles([UserRole.ADMIN.value, UserRole.COORDINATOR.value])),
     db: Session = Depends(get_db)
 ):
@@ -388,6 +434,7 @@ async def add_planned_activity(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Plan no encontrado"
         )
+    ensure_org_access(current_user, plan, "plan")
 
     # Verificar que la plantilla existe
     template = db.query(ActivityTemplate).filter(
@@ -428,6 +475,16 @@ async def add_planned_activity(
     db.commit()
     db.refresh(planned_activity)
 
+    log_audit(
+        db=None,
+        action="PLANNED_ACTIVITY_CREATED",
+        resource_type="planned_activities",
+        resource_id=planned_activity.id,
+        current_user=current_user,
+        request=request,
+        description="Actividad planeada agregada",
+    )
+
     return planned_activity
 
 
@@ -449,6 +506,7 @@ async def bulk_add_planned_activities(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Plan no encontrado"
         )
+    ensure_org_access(current_user, plan, "plan")
 
     created_activities = []
 
@@ -503,6 +561,7 @@ async def update_planned_activity(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Actividad no encontrada"
         )
+    ensure_org_access(current_user, activity.monthly_plan, "plan")
 
     # Guardar totales anteriores
     old_total = activity.total_planned
@@ -575,6 +634,7 @@ async def get_my_current_plan(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No tienes plan asignado para este mes"
         )
+    ensure_org_access(current_user, plan, "plan")
 
     # Construir respuesta
     planned_activities = []

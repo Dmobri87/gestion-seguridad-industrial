@@ -346,6 +346,13 @@ export const executionsApi = {
     const response = await api.delete(`/executions/${executionId}/files/${fileId}`);
     return response.data;
   },
+
+  downloadFile: async (fileId: number) => {
+    const response = await api.get(`/executions/files/${fileId}/download`, {
+      responseType: 'blob',
+    });
+    return response.data;
+  },
 };
 
 // ==========================================

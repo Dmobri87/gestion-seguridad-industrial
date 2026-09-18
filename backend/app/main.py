@@ -1,8 +1,9 @@
 import os
 import logging
+import uuid
+import time
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -12,14 +13,23 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ─── Logging ───
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
+LOG_FORMAT = os.getenv("LOG_FORMAT", "text").lower()
+if LOG_FORMAT == "json":
+    logging.basicConfig(
+        level=logging.INFO,
+        format='{"time":"%(asctime)s","level":"%(levelname)s","logger":"%(name)s","message":"%(message)s"}',
+        datefmt="%Y-%m-%dT%H:%M:%S",
+    )
+else:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
 logger = logging.getLogger(__name__)
 
 from app.core.database import engine, Base
+from app.core.ratelimit import check_rate_limit_redis, is_redis_enabled
 
 # Directorio de uploads
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "uploads")
@@ -35,9 +45,62 @@ class UTF8Middleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
         content_type = response.headers.get("content-type", "")
-        if "application/json" in content_type and "charset" not in content_type:
-            response.headers["content-type"] = "application/json; charset=utf-8"
+        if "charset" not in content_type:
+            if "application/json" in content_type:
+                response.headers["content-type"] = "application/json; charset=utf-8"
+            elif "text/plain" in content_type:
+                response.headers["content-type"] = "text/plain; charset=utf-8"
         return response
+
+
+class RequestIdMiddleware(BaseHTTPMiddleware):
+    """Agrega X-Request-ID a todas las respuestas."""
+    async def dispatch(self, request: Request, call_next):
+        request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
+        response = await call_next(request)
+        response.headers["x-request-id"] = request_id
+        return response
+
+
+class AccessLogMiddleware(BaseHTTPMiddleware):
+    """Log estructurado por request."""
+    async def dispatch(self, request: Request, call_next):
+        start = time.time()
+        response = await call_next(request)
+        duration_ms = int((time.time() - start) * 1000)
+        request_id = response.headers.get("x-request-id", "-")
+        logger.info(
+            "request_id=%s method=%s path=%s status=%s duration_ms=%s",
+            request_id,
+            request.method,
+            request.url.path,
+            response.status_code,
+            duration_ms,
+        )
+        return response
+
+
+class GlobalRateLimitMiddleware(BaseHTTPMiddleware):
+    """Rate limit global por IP para proteger el API completo."""
+    async def dispatch(self, request: Request, call_next):
+        # Health checks no deben ser rate-limited
+        if request.url.path in ("/health", "/metrics"):
+            return await call_next(request)
+        # En desarrollo/local, no limitar
+        debug = os.getenv("DEBUG", "False").lower() in ("true", "1", "yes")
+        client_ip = request.client.host if request.client else "unknown"
+        if debug or client_ip in ("127.0.0.1", "::1"):
+            return await call_next(request)
+        if not is_redis_enabled():
+            return await call_next(request)
+
+        key = f"rl:global:{client_ip}"
+        if not check_rate_limit_redis(key, max_attempts=300, window_seconds=60):
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "Demasiadas solicitudes, intente de nuevo en breve."}
+            )
+        return await call_next(request)
 
 
 class SecurityHeadersMiddleware:
@@ -124,15 +187,17 @@ def _run_migrations():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifecycle manager para la aplicación."""
-    # Startup: Crear las tablas en la base de datos
-    Base.metadata.create_all(bind=engine)
-    logger.info("Tablas de base de datos creadas/verificadas")
+    # Startup: Inicializar DB solo si se habilita explícitamente (dev)
+    run_db_init = os.getenv("RUN_DB_INIT", "False").lower() in ("true", "1", "yes")
+    if run_db_init:
+        Base.metadata.create_all(bind=engine)
+        logger.info("Tablas de base de datos creadas/verificadas (RUN_DB_INIT=true)")
 
-    # Ejecutar migraciones incrementales
-    try:
-        _run_migrations()
-    except Exception:
-        logger.exception("Error ejecutando migraciones")
+        # Ejecutar migraciones incrementales legacy
+        try:
+            _run_migrations()
+        except Exception:
+            logger.exception("Error ejecutando migraciones")
 
     logger.info("CORS orígenes permitidos: %s", CORS_ORIGINS)
     yield
@@ -180,8 +245,17 @@ app.add_middleware(
     expose_headers=["X-Total-Count"],
 )
 
-# 3. Security headers (más externo - ASGI puro para fiabilidad)
+# 3. Security headers
 app.add_middleware(SecurityHeadersMiddleware)
+
+# 4. Request ID (más externo)
+app.add_middleware(RequestIdMiddleware)
+
+# 5. Access logs
+app.add_middleware(AccessLogMiddleware)
+
+# 6. Global rate limit
+app.add_middleware(GlobalRateLimitMiddleware)
 
 # ─── Global Exception Handlers ───
 
@@ -209,9 +283,7 @@ async def general_exception_handler(request: Request, exc: Exception):
     )
 
 
-# Servir archivos estáticos (uploads/evidencias)
-# TODO: En producción, servir uploads detrás de autenticación
-app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+# Archivos subidos: acceso siempre protegido vía endpoints autenticados
 
 # Importar y registrar rutas
 from app.api.v1 import api_router

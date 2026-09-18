@@ -1,11 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
 from sqlalchemy.orm import Session
 from typing import List
 
 from app.core.database import get_db
-from app.core.dependencies import get_current_user, require_roles
+from app.core.dependencies import get_current_user, require_roles, ensure_org_access
+from app.core.audit import log_audit
 from app.models.user import User, UserRole
 from app.models.activity_category import ActivityCategory
+from sqlalchemy import or_
 from app.schemas.planning import (
     ActivityCategoryResponse,
     ActivityCategoryCreate,
@@ -18,15 +20,23 @@ router = APIRouter()
 
 @router.get("/", response_model=List[ActivityCategoryWithCount])
 async def get_activity_categories(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
     Listar todas las categorías de actividades con conteo.
     """
-    categories = db.query(ActivityCategory).filter(
-        ActivityCategory.is_active == True
-    ).order_by(ActivityCategory.display_order).all()
+    query = db.query(ActivityCategory).filter(ActivityCategory.is_active == True)
+    if current_user.organization_id:
+        query = query.filter(
+            or_(
+                ActivityCategory.organization_id == None,
+                ActivityCategory.organization_id == current_user.organization_id
+            )
+        )
+    categories = query.order_by(ActivityCategory.display_order).offset(skip).limit(limit).all()
 
     result = []
     for cat in categories:
@@ -55,6 +65,7 @@ async def get_activity_category(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Categoría no encontrada"
         )
+    ensure_org_access(current_user, category, "categoría", allow_global=True)
 
     return category
 
@@ -62,6 +73,7 @@ async def get_activity_category(
 @router.post("/", response_model=ActivityCategoryResponse)
 async def create_activity_category(
     category_data: ActivityCategoryCreate,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -79,10 +91,24 @@ async def create_activity_category(
             detail="El código de categoría ya existe"
         )
 
-    category = ActivityCategory(**category_data.model_dump())
+    organization_id = category_data.organization_id
+    if current_user.organization_id:
+        organization_id = current_user.organization_id
+
+    category = ActivityCategory(**category_data.model_dump(), organization_id=organization_id)
     db.add(category)
     db.commit()
     db.refresh(category)
+
+    log_audit(
+        db=None,
+        action="ACTIVITY_CATEGORY_CREATED",
+        resource_type="activity_categories",
+        resource_id=category.id,
+        current_user=current_user,
+        request=request,
+        description="Categoría creada",
+    )
 
     return category
 
@@ -91,6 +117,7 @@ async def create_activity_category(
 async def update_activity_category(
     category_id: int,
     category_data: ActivityCategoryUpdate,
+    request: Request,
     current_user: User = Depends(require_roles([UserRole.ADMIN.value, UserRole.COORDINATOR.value])),
     db: Session = Depends(get_db)
 ):
@@ -106,6 +133,7 @@ async def update_activity_category(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Categoría no encontrada"
         )
+    ensure_org_access(current_user, category, "categoría")
 
     # Verificar código único si se cambia
     update_data = category_data.model_dump(exclude_unset=True)
@@ -125,12 +153,22 @@ async def update_activity_category(
 
     db.commit()
     db.refresh(category)
+    log_audit(
+        db=None,
+        action="ACTIVITY_CATEGORY_UPDATED",
+        resource_type="activity_categories",
+        resource_id=category.id,
+        current_user=current_user,
+        request=request,
+        description="Categoría actualizada",
+    )
     return category
 
 
 @router.delete("/{category_id}")
 async def delete_activity_category(
     category_id: int,
+    request: Request,
     current_user: User = Depends(require_roles([UserRole.ADMIN.value])),
     db: Session = Depends(get_db)
 ):
@@ -146,7 +184,17 @@ async def delete_activity_category(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Categoría no encontrada"
         )
+    ensure_org_access(current_user, category, "categoría")
 
     category.is_active = False
     db.commit()
+    log_audit(
+        db=None,
+        action="ACTIVITY_CATEGORY_DELETED",
+        resource_type="activity_categories",
+        resource_id=category.id,
+        current_user=current_user,
+        request=request,
+        description="Categoría desactivada",
+    )
     return {"message": "Categoría desactivada"}

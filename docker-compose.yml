@@ -1,4 +1,11 @@
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: gestion-redis
+    restart: always
+    ports:
+      - "6379:6379"
+
   # ========================================
   # BASE DE DATOS POSTGRESQL
   # ========================================
@@ -35,13 +42,18 @@ services:
       ALGORITHM: ${ALGORITHM}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES}
       DEBUG: ${DEBUG}
+      RUN_DB_INIT: ${RUN_DB_INIT}
+      REDIS_URL: ${REDIS_URL}
     ports:
       - "8080:80"
     volumes:
       - ./backend/app:/code/app
+      - ./backend/uploads:/code/uploads
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_started
     command: uvicorn app.main:app --host 0.0.0.0 --port 80 --reload
 
 # ========================================

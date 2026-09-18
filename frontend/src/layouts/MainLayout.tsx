@@ -24,6 +24,7 @@ const { Text } = Typography;
 
 const MainLayout = () => {
   const [collapsed, setCollapsed] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuthStore();
@@ -112,6 +113,13 @@ const MainLayout = () => {
         trigger={null}
         collapsible
         collapsed={collapsed}
+        collapsedWidth={isMobile ? 0 : 80}
+        breakpoint="lg"
+        onBreakpoint={(broken) => {
+          setIsMobile(broken);
+          if (broken) setCollapsed(true);
+        }}
+        onCollapse={(value) => setCollapsed(value)}
         style={{
           overflow: 'auto',
           height: '100vh',
@@ -145,7 +153,7 @@ const MainLayout = () => {
         />
       </Sider>
 
-      <Layout style={{ marginLeft: collapsed ? 80 : 200, transition: 'margin-left 0.2s' }}>
+      <Layout style={{ marginLeft: isMobile ? 0 : (collapsed ? 80 : 200), transition: 'margin-left 0.2s' }}>
         <Header
           style={{
             padding: '0 24px',

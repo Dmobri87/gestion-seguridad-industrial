@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import extract, func
+from sqlalchemy import extract, func, or_
 from typing import Optional
 from datetime import date, datetime
 
@@ -107,7 +107,15 @@ async def get_dashboard(
     # CUMPLIMIENTO POR CATEGORÍA
     # ==========================================
 
-    categories = db.query(ActivityCategory).filter(ActivityCategory.is_active == True).all()
+    categories_query = db.query(ActivityCategory).filter(ActivityCategory.is_active == True)
+    if current_user.organization_id:
+        categories_query = categories_query.filter(
+            or_(
+                ActivityCategory.organization_id == None,
+                ActivityCategory.organization_id == current_user.organization_id
+            )
+        )
+    categories = categories_query.all()
     compliance_by_category = []
 
     for cat in categories:

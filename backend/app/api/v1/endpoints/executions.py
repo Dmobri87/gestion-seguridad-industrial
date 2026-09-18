@@ -4,13 +4,15 @@ import uuid
 import shutil
 import logging
 from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import and_
 from typing import List, Optional
 from datetime import date, datetime, timedelta
 
 from app.core.database import get_db
-from app.core.dependencies import get_current_user, require_roles
+from app.core.dependencies import get_current_user, require_roles, ensure_org_access
+from app.core.audit import log_audit
 from app.models.user import User, UserRole
 from app.models.planning import PlannedActivity, MonthlyPlan
 from app.models.execution import ActivityExecution, ExecutionFile, ExecutionHistory, ExecutionStatus, ApprovalStatus
@@ -133,6 +135,12 @@ async def create_execution(
     db: Session = Depends(get_db)
 ):
     """Registrar nueva ejecución de actividad."""
+    if current_user.organization_id and execution_data.organization_id != current_user.organization_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para registrar ejecuciones en esta organización"
+        )
+
     # Verificar que la actividad planeada existe
     planned = db.query(PlannedActivity).filter(
         PlannedActivity.id == execution_data.planned_activity_id
@@ -143,11 +151,19 @@ async def create_execution(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Actividad planeada no encontrada"
         )
+    ensure_org_access(current_user, planned.monthly_plan, "plan")
+
+    # Verificar que el usuario exista y pertenezca a la organización
+    target_user_id = execution_data.user_id or current_user.id
+    target_user = db.query(User).filter(User.id == target_user_id).first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    ensure_org_access(current_user, target_user, "usuario")
 
     # Crear ejecución
     execution = ActivityExecution(
         planned_activity_id=execution_data.planned_activity_id,
-        user_id=execution_data.user_id or current_user.id,
+        user_id=target_user_id,
         execution_date=execution_data.execution_date,
         cycle_number=execution_data.cycle_number,
         status=execution_data.status,
@@ -175,6 +191,16 @@ async def create_execution(
 
     db.commit()
     db.refresh(execution)
+
+    log_audit(
+        db=None,
+        action="EXECUTION_CREATED",
+        resource_type="executions",
+        resource_id=execution.id,
+        current_user=current_user,
+        request=None,
+        description="Ejecución registrada",
+    )
 
     return execution
 
@@ -256,6 +282,7 @@ async def approve_execution(
 
     if not execution:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ejecución no encontrada")
+    ensure_org_access(current_user, execution, "ejecución")
 
     execution.approval_status = ApprovalStatus.APPROVED.value if approval_data.approved else ApprovalStatus.REJECTED.value
     execution.approved_by = current_user.id
@@ -264,6 +291,16 @@ async def approve_execution(
         execution.rejection_reason = approval_data.rejection_reason
 
     db.commit()
+
+    log_audit(
+        db=None,
+        action="EXECUTION_APPROVED" if approval_data.approved else "EXECUTION_REJECTED",
+        resource_type="executions",
+        resource_id=execution.id,
+        current_user=current_user,
+        request=None,
+        description="Aprobación de ejecución",
+    )
 
     return ExecutionApprovalResponse(
         execution_id=execution.id,
@@ -337,6 +374,7 @@ async def upload_execution_file(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Ejecución no encontrada"
         )
+    ensure_org_access(current_user, execution, "ejecución")
 
     # Sanitizar y validar nombre de archivo
     original_filename = _sanitize_filename(file.filename or "archivo")
@@ -444,6 +482,15 @@ async def upload_execution_file(
         )
 
     logger.info("Archivo subido: %s para ejecución %s por %s", unique_name, execution_id, current_user.email)
+    log_audit(
+        db=None,
+        action="EVIDENCE_UPLOADED",
+        resource_type="execution_files",
+        resource_id=db_file.id,
+        current_user=current_user,
+        request=None,
+        description="Archivo de evidencia subido",
+    )
     return db_file
 
 
@@ -463,12 +510,57 @@ async def get_execution_files(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Ejecución no encontrada"
         )
+    ensure_org_access(current_user, execution, "ejecución")
 
     files = db.query(ExecutionFile).filter(
         ExecutionFile.execution_id == execution_id
     ).order_by(ExecutionFile.created_at.desc()).all()
 
     return files
+
+
+@router.get("/files/{file_id}/download")
+async def download_execution_file(
+    file_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Descargar un archivo de evidencia con autorización."""
+    db_file = db.query(ExecutionFile).filter(ExecutionFile.id == file_id).first()
+    if not db_file:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Archivo no encontrado")
+
+    execution = db.query(ActivityExecution).filter(ActivityExecution.id == db_file.execution_id).first()
+    if not execution:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ejecución no encontrada")
+    ensure_org_access(current_user, execution, "ejecución")
+
+    # Permisos: dueño de la ejecución o coordinador/admin
+    if current_user.id != execution.user_id and current_user.role not in [
+        UserRole.ADMIN.value,
+        UserRole.COORDINATOR.value,
+    ]:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tienes permiso para descargar este archivo")
+
+    if not db_file.file_url.startswith("/uploads/"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ruta de archivo inválida")
+
+    relative_path = db_file.file_url.replace("/uploads/", "", 1)
+    file_path = os.path.join(UPLOAD_DIR, relative_path)
+
+    real_upload = os.path.realpath(UPLOAD_DIR)
+    real_file = os.path.realpath(file_path)
+    if not real_file.startswith(real_upload):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ruta de archivo inválida")
+
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Archivo no encontrado en el servidor")
+
+    return FileResponse(
+        path=file_path,
+        media_type=db_file.file_type or "application/octet-stream",
+        filename=db_file.file_name
+    )
 
 
 @router.delete("/{execution_id}/files/{file_id}")
@@ -490,6 +582,14 @@ async def delete_execution_file(
             detail="Archivo no encontrado"
         )
 
+    execution = db.query(ActivityExecution).filter(ActivityExecution.id == execution_id).first()
+    if not execution:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Ejecución no encontrada"
+        )
+    ensure_org_access(current_user, execution, "ejecución")
+
     # Solo el que subió o un admin puede eliminar
     if db_file.uploaded_by != current_user.id and current_user.role != UserRole.ADMIN.value:
         raise HTTPException(
@@ -505,5 +605,15 @@ async def delete_execution_file(
 
     db.delete(db_file)
     db.commit()
+
+    log_audit(
+        db=None,
+        action="EVIDENCE_DELETED",
+        resource_type="execution_files",
+        resource_id=db_file.id,
+        current_user=current_user,
+        request=None,
+        description="Archivo de evidencia eliminado",
+    )
 
     return {"message": "Archivo eliminado correctamente"}

@@ -1,11 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import date, timedelta
 from pydantic import BaseModel, ConfigDict
 
 from app.core.database import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, ensure_org_access
+from app.core.audit import log_audit
 from app.models.user import User
 from app.models.certification import CertificationType, UserCertification, CertificationStatus
 
@@ -46,6 +47,8 @@ class CertificationCreate(BaseModel):
 @router.get("/types", response_model=List[CertificationTypeResponse])
 async def get_certification_types(
     applies_to: Optional[str] = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(200, ge=1, le=1000),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -53,7 +56,7 @@ async def get_certification_types(
     query = db.query(CertificationType).filter(CertificationType.is_active == True)
     if applies_to:
         query = query.filter(CertificationType.applies_to == applies_to)
-    return query.all()
+    return query.offset(skip).limit(limit).all()
 
 
 @router.get("/user/{user_id}", response_model=List[UserCertificationResponse])
@@ -63,6 +66,11 @@ async def get_user_certifications(
     db: Session = Depends(get_db)
 ):
     """Listar certificaciones de un usuario."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado")
+    ensure_org_access(current_user, user, "usuario")
+
     certifications = db.query(UserCertification).filter(
         UserCertification.user_id == user_id
     ).all()
@@ -85,10 +93,16 @@ async def get_user_certifications(
 @router.post("/", response_model=UserCertificationResponse)
 async def create_certification(
     data: CertificationCreate,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Registrar nueva certificación."""
+    user = db.query(User).filter(User.id == data.user_id).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado")
+    ensure_org_access(current_user, user, "usuario")
+
     certification = UserCertification(
         **data.model_dump(),
         status=CertificationStatus.ACTIVE.value,
@@ -97,6 +111,15 @@ async def create_certification(
     db.add(certification)
     db.commit()
     db.refresh(certification)
+    log_audit(
+        db=None,
+        action="CERTIFICATION_CREATED",
+        resource_type="user_certifications",
+        resource_id=certification.id,
+        current_user=current_user,
+        request=request,
+        description="Certificación registrada",
+    )
     return certification
 
 

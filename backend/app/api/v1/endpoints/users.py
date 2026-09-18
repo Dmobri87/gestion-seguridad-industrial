@@ -1,11 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
 from app.core.database import get_db
-from app.core.dependencies import get_current_user, require_roles
+from app.core.dependencies import get_current_user, require_roles, ensure_org_access
 from app.core.security import get_password_hash
+from app.core.audit import log_audit
 from app.models.user import User, UserRole
+from app.models.department import Department
+from app.models.work_group import WorkGroup
 from app.schemas.user import UserResponse, UserCreateV1, UserUpdate, UserWithDetails
 
 router = APIRouter()
@@ -139,6 +142,7 @@ async def get_user(
 @router.post("/", response_model=UserResponse)
 async def create_user(
     user_data: UserCreateV1,
+    request: Request,
     current_user: User = Depends(require_roles([UserRole.ADMIN.value, UserRole.COORDINATOR.value])),
     db: Session = Depends(get_db)
 ):
@@ -156,6 +160,28 @@ async def create_user(
 
     # Usar la organización del usuario actual si no se especifica
     organization_id = user_data.organization_id or current_user.organization_id
+    if current_user.organization_id and organization_id != current_user.organization_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para asignar esta organización"
+        )
+
+    # Validar relaciones si se envían
+    if user_data.department_id:
+        dept = db.query(Department).filter(Department.id == user_data.department_id).first()
+        if not dept:
+            raise HTTPException(status_code=404, detail="Departamento no encontrado")
+        ensure_org_access(current_user, dept, "departamento")
+    if user_data.work_group_id:
+        group = db.query(WorkGroup).filter(WorkGroup.id == user_data.work_group_id).first()
+        if not group:
+            raise HTTPException(status_code=404, detail="Grupo de trabajo no encontrado")
+        ensure_org_access(current_user, group, "grupo de trabajo")
+    if user_data.supervisor_id:
+        supervisor = db.query(User).filter(User.id == user_data.supervisor_id).first()
+        if not supervisor:
+            raise HTTPException(status_code=404, detail="Supervisor no encontrado")
+        ensure_org_access(current_user, supervisor, "supervisor")
 
     new_user = User(
         email=user_data.email,
@@ -176,6 +202,16 @@ async def create_user(
     db.commit()
     db.refresh(new_user)
 
+    log_audit(
+        db=None,
+        action="USER_CREATED",
+        resource_type="users",
+        resource_id=new_user.id,
+        current_user=current_user,
+        request=request,
+        description=f"Usuario creado: {new_user.email}",
+    )
+
     return new_user
 
 
@@ -183,6 +219,7 @@ async def create_user(
 async def update_user(
     user_id: int,
     user_data: UserUpdate,
+    request: Request,
     current_user: User = Depends(require_roles([UserRole.ADMIN.value, UserRole.COORDINATOR.value])),
     db: Session = Depends(get_db)
 ):
@@ -207,11 +244,44 @@ async def update_user(
 
     # Actualizar campos
     update_data = user_data.model_dump(exclude_unset=True)
+    if "organization_id" in update_data and current_user.organization_id:
+        if update_data["organization_id"] != current_user.organization_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tienes permiso para cambiar la organización"
+            )
+
+    # Validar relaciones si se envían
+    if "department_id" in update_data and update_data["department_id"]:
+        dept = db.query(Department).filter(Department.id == update_data["department_id"]).first()
+        if not dept:
+            raise HTTPException(status_code=404, detail="Departamento no encontrado")
+        ensure_org_access(current_user, dept, "departamento")
+    if "work_group_id" in update_data and update_data["work_group_id"]:
+        group = db.query(WorkGroup).filter(WorkGroup.id == update_data["work_group_id"]).first()
+        if not group:
+            raise HTTPException(status_code=404, detail="Grupo de trabajo no encontrado")
+        ensure_org_access(current_user, group, "grupo de trabajo")
+    if "supervisor_id" in update_data and update_data["supervisor_id"]:
+        supervisor = db.query(User).filter(User.id == update_data["supervisor_id"]).first()
+        if not supervisor:
+            raise HTTPException(status_code=404, detail="Supervisor no encontrado")
+        ensure_org_access(current_user, supervisor, "supervisor")
     for field, value in update_data.items():
         setattr(user, field, value)
 
     db.commit()
     db.refresh(user)
+
+    log_audit(
+        db=None,
+        action="USER_UPDATED",
+        resource_type="users",
+        resource_id=user.id,
+        current_user=current_user,
+        request=request,
+        description=f"Usuario actualizado: {user.email}",
+    )
 
     return user
 
@@ -219,6 +289,7 @@ async def update_user(
 @router.delete("/{user_id}")
 async def delete_user(
     user_id: int,
+    request: Request,
     current_user: User = Depends(require_roles([UserRole.ADMIN.value])),
     db: Session = Depends(get_db)
 ):
@@ -234,6 +305,13 @@ async def delete_user(
             detail="Usuario no encontrado"
         )
 
+    # Verificar permisos de organización
+    if current_user.organization_id and user.organization_id != current_user.organization_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para desactivar este usuario"
+        )
+
     # No permitir eliminar a uno mismo
     if user.id == current_user.id:
         raise HTTPException(
@@ -244,5 +322,15 @@ async def delete_user(
     # Soft delete
     user.is_active = False
     db.commit()
+
+    log_audit(
+        db=None,
+        action="USER_DEACTIVATED",
+        resource_type="users",
+        resource_id=user.id,
+        current_user=current_user,
+        request=request,
+        description=f"Usuario desactivado: {user.email}",
+    )
 
     return {"message": "Usuario desactivado correctamente"}
